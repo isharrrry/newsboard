@@ -1,0 +1,649 @@
+@page "/settings"
+@inject ConfigStore Store
+@inject ISpeechService Speech
+@inject IScreenController Screen
+
+<link rel="stylesheet" href="_content/NewsBoard.Shared/css/settings.css" />
+
+<div class="settings-page">
+    <header class="settings-header">
+        <h1>设置</h1>
+        <div class="header-right">
+            <a class="back-link" href="/">← 返回看板</a>
+        </div>
+    </header>
+
+    @if (!_loaded)
+    {
+        <p class="hint">正在加载配置…</p>
+    }
+    else
+    {
+        <p class="hint">改动只作用于本页副本，点「保存」才写入。带 <span class="chip warn">自检</span> 的按钮只在本机试一下，不改配置。</p>
+
+        <section class="group">
+            <h2>API / 采集</h2>
+
+            <div class="row">
+                <label for="fetchMode">新闻获取方式</label>
+                <select id="fetchMode" @bind="_edit.FetchMode">
+                    <option value="@NewsFetchMode.RssThenSummarize">RSS+提炼</option>
+                    <option value="@NewsFetchMode.WebSearch">模型联网搜索</option>
+                    <option value="@NewsFetchMode.Auto">自动</option>
+                </select>
+                <span class="desc">RSS+提炼最稳；模型联网搜索直接让模型联网检索；自动＝先试联网，不通回退 RSS。</span>
+            </div>
+
+            <div class="row">
+                <label for="baseUrl">BaseUrl</label>
+                <input id="baseUrl" type="text" @bind="_edit.BaseUrl" />
+                <span class="desc">OpenAI 兼容端点，RSS 提炼通道用（POST /chat/completions）。</span>
+            </div>
+
+            <div class="row">
+                <label for="model">模型名</label>
+                <input id="model" type="text" @bind="_edit.Model" />
+                <span class="desc">两条通道共用同一个模型名。</span>
+            </div>
+
+            <div class="row">
+                <label for="baseUrlSearch">BaseUrlSearch</label>
+                <input id="baseUrlSearch" type="text" @bind="_edit.BaseUrlSearch" />
+                <span class="desc">联网搜索端点，Anthropic 兼容（POST /v1/messages + web_search 工具）。</span>
+            </div>
+
+            <div class="row">
+                <label for="searchMaxUses">联网搜索 max_uses</label>
+                <input id="searchMaxUses" type="number" min="1" max="20" @bind="_edit.SearchMaxUses" />
+                <span class="desc">每个关键字允许模型调用搜索工具的次数。</span>
+            </div>
+
+            <div class="row">
+                <label for="apiKey">API Key</label>
+                <input id="apiKey" type="password" autocomplete="off" placeholder="粘贴 DeepSeek API Key" @bind="_apiKeyInput" />
+                <button type="button" @onclick="SaveApiKeyAsync">保存 Key</button>
+                @if (_hasKey)
+                {
+                    <button type="button" class="danger" @onclick="ClearApiKeyAsync">清除 Key</button>
+                }
+                <span class="chip @(_hasKey ? "ok" : "warn")">@(_hasKey ? "已配置" : "未配置")</span>
+            </div>
+            <p class="desc">Key 只进平台安全存储（Android SecureStorage / Windows DPAPI），不写入 config.json，也不随本页「保存」落盘。</p>
+
+            <div class="row column">
+                <label>关键字列表</label>
+                @if (_edit.Keywords.Count == 0)
+                {
+                    <p class="desc">列表为空，采集会没有任何关键字。</p>
+                }
+                <ul class="keyword-list">
+                    @for (var i = 0; i < _edit.Keywords.Count; i++)
+                    {
+                        var index = i;
+                        <li>
+                            <input type="text" @bind="_edit.Keywords[index]" />
+                            <button type="button" title="上移" disabled="@(index == 0)" @onclick="() => MoveKeyword(index, -1)">↑</button>
+                            <button type="button" title="下移" disabled="@(index == _edit.Keywords.Count - 1)" @onclick="() => MoveKeyword(index, 1)">↓</button>
+                            <button type="button" class="danger" @onclick="() => RemoveKeyword(index)">删除</button>
+                        </li>
+                    }
+                </ul>
+                <div class="inline-input">
+                    <input type="text" placeholder="新增关键字" @bind="_newKeyword" @bind:event="oninput" @onkeydown="OnKeywordKeyDown" />
+                    <button type="button" @onclick="AddKeyword">添加</button>
+                    <span class="desc">顺序即「按关键字顺序」轮播的顺序。保存时自动去空、去重、去首尾空格。</span>
+                </div>
+            </div>
+
+            <div class="row">
+                <label for="itemsPerKeyword">每关键字篇数</label>
+                <input id="itemsPerKeyword" type="number" min="1" max="20" @bind="_edit.ItemsPerKeyword" />
+                <span class="desc">每个关键字各取几篇。</span>
+            </div>
+
+            <div class="row">
+                <label for="fetchInterval">抓取间隔（分钟）</label>
+                <input id="fetchInterval" type="number" min="1" max="180" @bind="_edit.FetchIntervalMinutes" />
+                <span class="desc">定时抓取周期。</span>
+            </div>
+
+            <div class="row">
+                <label for="summaryMaxChars">摘要字数</label>
+                <input id="summaryMaxChars" type="number" min="10" max="200" @bind="_edit.SummaryMaxChars" />
+                <span class="desc">±10 字软约束。</span>
+            </div>
+
+            <div class="row">
+                <label for="aiMinInterval">AI 最小调用间隔（分钟）</label>
+                <input id="aiMinInterval" type="number" min="0" max="1440" @bind="_edit.AiMinIntervalMinutes" />
+                <span class="desc">防止源站抖动重复烧 token。</span>
+            </div>
+
+            <div class="row">
+                <label for="rssTemplate">RSS 源模板</label>
+                <input id="rssTemplate" type="text" @bind="_edit.RssTemplate" />
+                <span class="desc">{q} 会被替换成关键字。</span>
+            </div>
+
+            <div class="row">
+                <label for="onlyToday">只用当天新闻</label>
+                <input id="onlyToday" type="checkbox" @bind="_edit.OnlyTodayNews" />
+                <span class="desc">过滤超过 24 小时的旧闻。</span>
+            </div>
+        </section>
+
+        <section class="group">
+            <h2>外观</h2>
+
+            <div class="row">
+                <label for="backgroundColor">背景色</label>
+                <input id="backgroundColor" type="color" @bind="_edit.BackgroundColor" />
+                <span class="value">@_edit.BackgroundColor</span>
+            </div>
+
+            <div class="row">
+                <label for="foregroundColor">前景色（正文）</label>
+                <input id="foregroundColor" type="color" @bind="_edit.ForegroundColor" />
+                <span class="value">@_edit.ForegroundColor</span>
+            </div>
+
+            <div class="row">
+                <label for="accentColor">强调色（关键字标签 / 时钟）</label>
+                <input id="accentColor" type="color" @bind="_edit.AccentColor" />
+                <span class="value">@_edit.AccentColor</span>
+            </div>
+
+            <div class="row">
+                <label for="fontSize">正文字号（sp）</label>
+                <input id="fontSize" type="number" min="16" max="200" @bind="_edit.FontSizeSp" />
+                <span class="desc">看板的核心参数，建议 40–80。</span>
+            </div>
+
+            <div class="row">
+                <label for="fontWeight">字重</label>
+                <select id="fontWeight" @bind="_edit.FontWeight">
+                    <option value="Normal">常规</option>
+                    <option value="Bold">加粗</option>
+                </select>
+            </div>
+
+            <div class="row">
+                <label for="lineHeight">行距倍数</label>
+                <input id="lineHeight" type="number" min="1" max="3" step="0.05" @bind="_edit.LineHeight" />
+            </div>
+
+            <div class="row">
+                <label for="pagePadding">页面内边距（px）</label>
+                <input id="pagePadding" type="number" min="0" max="200" @bind="_edit.PagePaddingPx" />
+            </div>
+
+            <div class="row">
+                <label for="keywordFontSize">关键字标签字号（sp）</label>
+                <input id="keywordFontSize" type="number" min="8" max="120" @bind="_edit.KeywordLabelFontSizeSp" />
+            </div>
+
+            <div class="row">
+                <label for="textAlign">文字对齐</label>
+                <select id="textAlign" @bind="_edit.TextAlign">
+                    <option value="@TextAlignOption.Left">左对齐</option>
+                    <option value="@TextAlignOption.Center">居中</option>
+                    <option value="@TextAlignOption.Right">右对齐</option>
+                </select>
+            </div>
+
+            <div class="row">
+                <label for="showClock">显示时钟</label>
+                <input id="showClock" type="checkbox" @bind="_edit.ShowClock" />
+            </div>
+
+            <div class="row">
+                <label for="showKeyword">显示关键字标签</label>
+                <input id="showKeyword" type="checkbox" @bind="_edit.ShowKeywordLabel" />
+            </div>
+
+            <div class="row">
+                <label for="showSource">显示新闻来源</label>
+                <input id="showSource" type="checkbox" @bind="_edit.ShowSource" />
+            </div>
+        </section>
+
+        <section class="group">
+            <h2>播放 / 语音</h2>
+
+            <div class="row">
+                <label for="playbackMode">播放模式</label>
+                <select id="playbackMode" @bind="_edit.PlaybackMode">
+                    <option value="@PlaybackMode.TextOnly">纯文字</option>
+                    <option value="@PlaybackMode.TextAndImage">文字+图片</option>
+                </select>
+                <span class="desc">图文模式取不到图时自动退化为纯文字。</span>
+            </div>
+
+            <div class="row">
+                <label for="speechEnabled">启用语音播报</label>
+                <input id="speechEnabled" type="checkbox" @bind="_edit.SpeechEnabled" />
+                <span class="desc">关闭后按「单条基础停留 / 滚动到底」走，不再朗读。</span>
+            </div>
+
+            <div class="row">
+                <label for="speechContent">播报内容</label>
+                <select id="speechContent" @bind="_edit.SpeechContent">
+                    <option value="@SpeechContent.SummaryOnly">仅摘要</option>
+                    <option value="@SpeechContent.TitleAndSummary">标题+摘要</option>
+                </select>
+            </div>
+
+            <div class="row">
+                <label for="speechLanguage">播报语言</label>
+                <input id="speechLanguage" type="text" @bind="_edit.SpeechLanguage" @bind:event="oninput" />
+                <button type="button" @onclick="CheckSpeechAsync" disabled="@_speechChecking">
+                    @(_speechChecking ? "检测中…" : "检测语音包")
+                </button>
+                <span class="chip @(_speechAvailable == true ? "ok" : "warn")">@SpeechStateText()</span>
+            </div>
+            @if (_speechAvailable == false)
+            {
+                <p class="warn-box">
+                    未检测到「@_edit.SpeechLanguage」语音包：播报会按下面的「TTS 不可用时」策略处理。
+                    请到系统设置里的「文字转语音 / 语音」安装对应语言包后重新检测。
+                </p>
+            }
+
+            <div class="row">
+                <label>测试播报</label>
+                <button type="button" @onclick="TestSpeechAsync" disabled="@_speaking">@(_speaking ? "播报中…" : "测试播报")</button>
+                <span class="desc">朗读「这是一条测试播报」，按当前语速/音调，用于确认语音是否正常。</span>
+            </div>
+
+            <div class="row">
+                <label for="speechRate">语速</label>
+                <input id="speechRate" type="number" min="0.5" max="2" step="0.05" @bind="_edit.SpeechRate" />
+                <span class="desc">0.5–2.0。</span>
+            </div>
+
+            <div class="row">
+                <label for="speechPitch">音调</label>
+                <input id="speechPitch" type="number" min="0.5" max="2" step="0.05" @bind="_edit.SpeechPitch" />
+                <span class="desc">0.5–2.0。</span>
+            </div>
+
+            <div class="row">
+                <label for="speechLead">播报前静默（秒）</label>
+                <input id="speechLead" type="number" min="0" max="10" @bind="_edit.SpeechLeadSeconds" />
+                <span class="desc">切条后先静默再开口。</span>
+            </div>
+
+            <div class="row">
+                <label for="quietHours">静音时段</label>
+                <input id="quietHours" type="text" placeholder="23:00-07:00" @bind="_edit.QuietHours" />
+                <span class="desc">该时段内只显示不朗读；留空＝全天可播。</span>
+            </div>
+
+            <div class="row">
+                <label for="ttsUnavailable">TTS 不可用时</label>
+                <select id="ttsUnavailable" @bind="_edit.TtsUnavailable">
+                    <option value="@TtsUnavailablePolicy.FallbackHold">回退固定停留</option>
+                    <option value="@TtsUnavailablePolicy.SkipItem">跳过该条</option>
+                </select>
+            </div>
+
+            <div class="row">
+                <label for="showDuration">亮屏时长（秒）</label>
+                <input id="showDuration" type="number" min="5" max="3600" @bind="_edit.ShowDurationSeconds" />
+                <span class="desc">一轮展示窗口。</span>
+            </div>
+
+            <div class="row">
+                <label for="itemHold">单条基础停留（秒）</label>
+                <input id="itemHold" type="number" min="1" max="600" @bind="_edit.ItemHoldSeconds" />
+                <span class="desc">仅 TTS 关闭时生效。</span>
+            </div>
+
+            <div class="row">
+                <label for="scrollSpeed">溢出滚动速度（px/秒）</label>
+                <input id="scrollSpeed" type="number" min="10" max="600" @bind="_edit.ScrollSpeedPxPerSecond" />
+                <span class="desc">仅 TTS 关闭时生效；TTS 开启则按朗读时长动态调速。</span>
+            </div>
+
+            <div class="row">
+                <label for="blackoutDuration">黑屏时长（秒）</label>
+                <input id="blackoutDuration" type="number" min="5" max="3600" @bind="_edit.BlackoutDurationSeconds" />
+            </div>
+
+            <div class="row">
+                <label for="blackoutCycle">启用亮熄循环</label>
+                <input id="blackoutCycle" type="checkbox" @bind="_edit.BlackoutCycleEnabled" />
+                <span class="desc">关掉则一直亮屏。</span>
+            </div>
+
+            <div class="row">
+                <label for="blackoutMode">黑屏方式</label>
+                <select id="blackoutMode" @bind="_edit.BlackoutMode">
+                    <option value="@BlackoutMode.BrightnessZeroAndBlack">亮度 0 + 全黑</option>
+                    <option value="@BlackoutMode.BlackOnly">只全黑（保留背光）</option>
+                </select>
+            </div>
+
+            <div class="row">
+                <label for="windowEnd">窗口到点行为</label>
+                <select id="windowEnd" @bind="_edit.WindowEndBehavior">
+                    <option value="@WindowEndBehavior.FinishCurrentItem">念完当前条</option>
+                    <option value="@WindowEndBehavior.InterruptImmediately">立即中断</option>
+                </select>
+            </div>
+
+            <div class="row">
+                <label for="imagePosition">图文模式图片位置</label>
+                <select id="imagePosition" @bind="_edit.ImagePosition">
+                    <option value="@ImagePosition.TopImageBottomText">上图下文</option>
+                    <option value="@ImagePosition.LeftImageRightText">左图右文</option>
+                </select>
+            </div>
+
+            <div class="row">
+                <label for="imagePercent">图片占屏比例（%）</label>
+                <input id="imagePercent" type="number" min="10" max="80" @bind="_edit.ImageScreenPercent" />
+            </div>
+
+            <div class="row">
+                <label for="playOrder">轮播顺序</label>
+                <select id="playOrder" @bind="_edit.PlayOrder">
+                    <option value="@PlayOrder.ByKeywordOrder">按关键字顺序</option>
+                    <option value="@PlayOrder.ByPublishTime">按发布时间</option>
+                    <option value="@PlayOrder.Random">随机</option>
+                </select>
+            </div>
+
+            <div class="row">
+                <label for="resume">跨轮续播</label>
+                <input id="resume" type="checkbox" @bind="_edit.ResumeAcrossRounds" />
+                <span class="desc">单条没播完时，下一轮接着播。</span>
+            </div>
+        </section>
+
+        <section class="group">
+            <h2>系统 / 宿主</h2>
+
+            <div class="row">
+                <label for="keepScreenOn">保持屏幕常亮</label>
+                <input id="keepScreenOn" type="checkbox" @bind="_edit.KeepScreenOn" />
+                <span class="desc">Android 生效；桌面为空实现。</span>
+            </div>
+
+            <div class="row">
+                <label for="autoStart">开机自启</label>
+                <input id="autoStart" type="checkbox" @bind="_edit.AutoStart" />
+                <span class="desc">Android 走前台服务 + 通知（首次需在系统里允许自启动）；Windows 写注册表 Run 项。</span>
+            </div>
+
+            <div class="row">
+                <label for="wifiOnly">仅 WiFi 抓取</label>
+                <input id="wifiOnly" type="checkbox" @bind="_edit.WifiOnlyFetch" />
+                <span class="desc">默认关：允许移动数据抓取。</span>
+            </div>
+
+            <div class="row">
+                <label for="winFullscreen">Windows 无边框全屏</label>
+                <input id="winFullscreen" type="checkbox" @bind="_edit.WindowsBorderlessFullscreen" />
+                <span class="desc">默认带标题栏窗口。</span>
+            </div>
+
+            <div class="row">
+                <label for="androidStatusBar">Android 显示系统状态栏</label>
+                <input id="androidStatusBar" type="checkbox" @bind="_edit.AndroidShowStatusBar" />
+                <span class="desc">默认显示时钟/电量；关掉＝沉浸式全屏。</span>
+            </div>
+
+            <div class="row">
+                <label>屏幕自检</label>
+                <button type="button" @onclick="BlackoutSelfTestAsync" disabled="@_blackoutTesting">@(_blackoutTesting ? "自检中…" : "黑屏 2 秒")</button>
+                <span class="desc">试一下平台屏幕控制：全黑 2 秒后自动恢复，不改配置。</span>
+            </div>
+        </section>
+
+        <div class="settings-actions">
+            <button type="button" class="primary" @onclick="SaveConfigAsync">保存</button>
+            <button type="button" @onclick="Cancel">取消</button>
+            <button type="button" @onclick="RestoreDefaults">恢复默认</button>
+            @if (_message is not null)
+            {
+                <span class="chip ok">@_message</span>
+            }
+            @if (_error is not null)
+            {
+                <span class="chip err">@_error</span>
+            }
+        </div>
+        <p class="desc">「恢复默认」只重置本页编辑值，不会清除已保存的 API Key；点「保存」后才真正生效。</p>
+    }
+</div>
+
+@code {
+    private AppConfig _edit = new();
+    private bool _loaded;
+    private string _apiKeyInput = "";
+    private string _newKeyword = "";
+    private bool _hasKey;
+    private bool? _speechAvailable;
+    private bool _speechChecking;
+    private bool _speaking;
+    private bool _blackoutTesting;
+    private string? _message;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Store.LoadAsync();
+        _edit = Store.Current.Clone();
+        _hasKey = !string.IsNullOrWhiteSpace(await Store.GetApiKeyAsync());
+        await CheckSpeechAsync();
+        _loaded = true;
+    }
+
+    private string SpeechStateText()
+    {
+        if (_speechChecking)
+        {
+            return "检测中…";
+        }
+
+        return _speechAvailable switch
+        {
+            true => "语音包可用",
+            false => "语音包不可用",
+            _ => "未检测"
+        };
+    }
+
+    private async Task CheckSpeechAsync()
+    {
+        _speechChecking = true;
+        try
+        {
+            _speechAvailable = await Speech.IsAvailableAsync(_edit.SpeechLanguage);
+            if (_speechAvailable == false)
+            {
+                _error = $"未检测到 {_edit.SpeechLanguage} 语音包";
+            }
+            else
+            {
+                _error = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            _speechAvailable = false;
+            _error = $"语音包检测失败：{ex.Message}";
+        }
+        finally
+        {
+            _speechChecking = false;
+        }
+    }
+
+    private async Task TestSpeechAsync()
+    {
+        if (_speaking)
+        {
+            return;
+        }
+
+        _speaking = true;
+        _message = null;
+        _error = null;
+        try
+        {
+            await Speech.SpeakAsync("这是一条测试播报", _edit.SpeechRate, _edit.SpeechPitch, _edit.SpeechLanguage);
+            _message = "测试播报完成";
+        }
+        catch (Exception ex)
+        {
+            _error = $"测试播报失败：{ex.Message}";
+        }
+        finally
+        {
+            _speaking = false;
+        }
+    }
+
+    private async Task BlackoutSelfTestAsync()
+    {
+        if (_blackoutTesting)
+        {
+            return;
+        }
+
+        _blackoutTesting = true;
+        _message = null;
+        _error = null;
+        try
+        {
+            await Screen.SetBlackoutAsync(true);
+            await Task.Delay(2000);
+            _message = "屏幕自检完成";
+        }
+        catch (Exception ex)
+        {
+            _error = $"屏幕自检失败：{ex.Message}";
+        }
+        finally
+        {
+            try
+            {
+                await Screen.SetBlackoutAsync(false);
+            }
+            catch (Exception ex)
+            {
+                _error ??= $"恢复屏幕失败：{ex.Message}";
+            }
+
+            _blackoutTesting = false;
+        }
+    }
+
+    private async Task SaveApiKeyAsync()
+    {
+        _message = null;
+        _error = null;
+        try
+        {
+            await Store.SetApiKeyAsync(_apiKeyInput);
+            _hasKey = !string.IsNullOrWhiteSpace(await Store.GetApiKeyAsync());
+            _apiKeyInput = "";
+            _message = _hasKey ? "API Key 已保存" : "API Key 为空，未保存";
+        }
+        catch (Exception ex)
+        {
+            _error = $"API Key 保存失败：{ex.Message}";
+        }
+    }
+
+    private async Task ClearApiKeyAsync()
+    {
+        _message = null;
+        _error = null;
+        try
+        {
+            await Store.SetApiKeyAsync("");
+            _hasKey = false;
+            _message = "API Key 已清除";
+        }
+        catch (Exception ex)
+        {
+            _error = $"API Key 清除失败：{ex.Message}";
+        }
+    }
+
+    private void MoveKeyword(int index, int delta)
+    {
+        var target = index + delta;
+        if (index < 0 || index >= _edit.Keywords.Count || target < 0 || target >= _edit.Keywords.Count)
+        {
+            return;
+        }
+
+        (_edit.Keywords[index], _edit.Keywords[target]) = (_edit.Keywords[target], _edit.Keywords[index]);
+    }
+
+    private void RemoveKeyword(int index)
+    {
+        if (index >= 0 && index < _edit.Keywords.Count)
+        {
+            _edit.Keywords.RemoveAt(index);
+        }
+    }
+
+    private void AddKeyword()
+    {
+        var keyword = _newKeyword.Trim();
+        if (keyword.Length == 0)
+        {
+            return;
+        }
+
+        _edit.Keywords.Add(keyword);
+        _newKeyword = "";
+    }
+
+    private void OnKeywordKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+        {
+            AddKeyword();
+        }
+    }
+
+    private async Task SaveConfigAsync()
+    {
+        _message = null;
+        _error = null;
+        try
+        {
+            await Store.SaveAsync(_edit);
+            _edit = Store.Current.Clone();
+            _hasKey = !string.IsNullOrWhiteSpace(await Store.GetApiKeyAsync());
+            _message = "已保存";
+        }
+        catch (Exception ex)
+        {
+            _error = $"保存失败：{ex.Message}";
+        }
+    }
+
+    private void Cancel()
+    {
+        _edit = Store.Current.Clone();
+        _apiKeyInput = "";
+        _newKeyword = "";
+        _message = "已放弃未保存的修改";
+        _error = null;
+    }
+
+    private void RestoreDefaults()
+    {
+        _edit = new AppConfig();
+        _newKeyword = "";
+        _message = "已载入默认值（尚未保存）";
+        _error = null;
+    }
+}
