@@ -45,6 +45,9 @@ public class MainActivity : MauiAppCompatActivity
         {
             _ = screen.SetFullscreenAsync(!showStatusBar);
         }
+
+        // 加载配置与缓存（MainPage 显示前会等它）
+        NewsBoardBoot.Start(services);
     }
 
     private void RequestNotificationPermissionIfNeeded()

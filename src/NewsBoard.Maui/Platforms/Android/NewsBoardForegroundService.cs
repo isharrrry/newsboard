@@ -36,6 +36,18 @@ public sealed class NewsBoardForegroundService : Service
         }
     }
 
+    public static void Stop(Context context)
+    {
+        try
+        {
+            context.StopService(new Intent(context, typeof(NewsBoardForegroundService)));
+        }
+        catch (Exception)
+        {
+            // 服务已停止
+        }
+    }
+
     public override void OnCreate()
     {
         base.OnCreate();
@@ -45,7 +57,8 @@ public sealed class NewsBoardForegroundService : Service
     public override StartCommandResult OnStartCommand(Intent? intent, StartCommandFlags flags, int startId)
     {
         var notification = BuildNotification();
-        if (OperatingSystem.IsAndroidVersionAtLeast(29))
+        // specialUse 类型常量是 Android 14 才有的，低版本用两参重载
+        if (OperatingSystem.IsAndroidVersionAtLeast(34))
         {
             StartForeground(NotificationId, notification, ForegroundService.TypeSpecialUse);
         }
@@ -88,13 +101,15 @@ public sealed class NewsBoardForegroundService : Service
             launchIntent,
             PendingIntentFlags.Immutable | PendingIntentFlags.UpdateCurrent);
 
-        return new NotificationCompat.Builder(this, ChannelId)
-            .SetContentTitle("新闻看板")
-            .SetContentText("点击进入看板")
-            .SetSmallIcon(Android.Resource.Drawable.IcDialogInfo)
-            .SetContentIntent(contentIntent)
-            .SetOngoing(true)
-            .SetPriority(NotificationCompat.PriorityLow)
-            .Build();
+        // 绑定的链式方法返回可空，逐句调用避免解引用告警
+        var builder = new NotificationCompat.Builder(this, ChannelId)!;
+        builder.SetContentTitle("新闻看板");
+        builder.SetContentText("点击进入看板");
+        builder.SetSmallIcon(Android.Resource.Drawable.IcDialogInfo);
+        builder.SetContentIntent(contentIntent);
+        builder.SetOngoing(true);
+        builder.SetPriority(NotificationCompat.PriorityLow);
+
+        return builder.Build()!;
     }
 }

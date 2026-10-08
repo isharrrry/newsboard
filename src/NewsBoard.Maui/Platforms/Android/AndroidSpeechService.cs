@@ -1,8 +1,9 @@
 using Android.OS;
 using Android.Speech.Tts;
-using Java.Util;
 using Microsoft.Maui.ApplicationModel;
 using NewsBoard.Shared.Services.Abstractions;
+using Tts = Android.Speech.Tts.TextToSpeech;
+using JavaLocale = Java.Util.Locale;
 
 namespace NewsBoard.Maui;
 
@@ -16,7 +17,7 @@ public sealed class AndroidSpeechService : ISpeechService, IDisposable
 
     private readonly SemaphoreSlim _initGate = new(1, 1);
     private readonly object _gate = new();
-    private TextToSpeech? _engine;
+    private Tts? _engine;
     private bool _initFailed;
     private TaskCompletionSource<bool>? _activeUtterance;
     private int _utteranceCounter;
@@ -138,7 +139,7 @@ public sealed class AndroidSpeechService : ISpeechService, IDisposable
         pending?.TrySetResult(success);
     }
 
-    private async Task<TextToSpeech?> GetEngineAsync()
+    private async Task<Tts?> GetEngineAsync()
     {
         if (_engine is { } ready)
         {
@@ -164,11 +165,11 @@ public sealed class AndroidSpeechService : ISpeechService, IDisposable
             }
 
             var initSignal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            TextToSpeech? created = null;
+            Tts? created = null;
 
             await MainThread.InvokeOnMainThreadAsync(() =>
             {
-                created = new TextToSpeech(Android.App.Application.Context, new OnInitListener(ok => initSignal.TrySetResult(ok)));
+                created = new Tts(Android.App.Application.Context, new OnInitListener(ok => initSignal.TrySetResult(ok)));
                 created.SetOnUtteranceProgressListener(new UtteranceListener(this));
             }).ConfigureAwait(false);
 
@@ -190,21 +191,14 @@ public sealed class AndroidSpeechService : ISpeechService, IDisposable
         }
     }
 
-    private static Locale ToLocale(string language)
+    private static JavaLocale ToLocale(string language)
     {
         if (string.IsNullOrWhiteSpace(language))
         {
-            return Locale.Default!;
+            return JavaLocale.Default!;
         }
 
-        var normalized = language.Replace('_', '-');
-        var parts = normalized.Split('-', StringSplitOptions.RemoveEmptyEntries);
-        return parts.Length switch
-        {
-            >= 2 => new Locale(parts[0], parts[1]),
-            1 => new Locale(parts[0]),
-            _ => Locale.Default!,
-        };
+        return JavaLocale.ForLanguageTag(language.Replace('_', '-'));
     }
 
     public void Dispose()
@@ -230,7 +224,7 @@ public sealed class AndroidSpeechService : ISpeechService, IDisposable
         _initGate.Dispose();
     }
 
-    private sealed class OnInitListener : Java.Lang.Object, TextToSpeech.IOnInitListener
+    private sealed class OnInitListener : Java.Lang.Object, Tts.IOnInitListener
     {
         private readonly Action<bool> _onInit;
 
@@ -251,6 +245,7 @@ public sealed class AndroidSpeechService : ISpeechService, IDisposable
 
         public override void OnDone(string? utteranceId) => _owner.CompleteUtterance(utteranceId, true);
 
+        [Obsolete("Android 已废弃 onError(String)，绑定层会把它从 onError(String, int) 转发过来")]
         public override void OnError(string? utteranceId) => _owner.CompleteUtterance(utteranceId, false);
     }
 }

@@ -4,9 +4,20 @@
              xmlns:shared="clr-namespace:NewsBoard.Shared.Components;assembly=NewsBoard.Shared"
              x:Class="NewsBoard.Maui.MainPage"
              BackgroundColor="#000000">
-    <BlazorWebView HostPage="wwwroot/index.html">
-        <BlazorWebView.RootComponents>
-            <RootComponent Selector="#app" ComponentType="{x:Type shared:Routes}" />
-        </BlazorWebView.RootComponents>
-    </BlazorWebView>
+    <Grid>
+        <BlazorWebView x:Name="WebView"
+                       HostPage="wwwroot/index.html"
+                       IsVisible="False">
+            <BlazorWebView.RootComponents>
+                <RootComponent Selector="#app" ComponentType="{x:Type shared:Routes}" />
+            </BlazorWebView.RootComponents>
+        </BlazorWebView>
+
+        <Label x:Name="LoadingLabel"
+               Text="正在启动…"
+               TextColor="#00D4AA"
+               FontSize="24"
+               HorizontalOptions="Center"
+               VerticalOptions="Center" />
+    </Grid>
 </ContentPage>
