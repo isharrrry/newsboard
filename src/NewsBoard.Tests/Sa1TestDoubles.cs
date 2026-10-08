@@ -95,6 +95,16 @@ internal sealed class TempDirectory : IDisposable
 
 internal static class Sa1Data
 {
+    /// <summary>搜索型模板（含 {q}）：按关键字各抓一次。</summary>
+    public const string SearchTemplate = "https://rss.example.com/search?q={q}";
+
+    /// <summary>共享频道源模板（不含 {q}）：一轮只抓一次。</summary>
+    public const string SharedTemplate = "https://rss.example.com/channel.xml";
+
+    /// <summary>测试用 RSS 主机，便于按 URL 分流假响应。</summary>
+    public const string RssHost = "rss.example.com";
+
+    /// <summary>测试用配置。显式指定采集通道与 RSS 模板，不依赖 AppConfig 默认值。</summary>
     public static AppConfig Config(params string[] keywords) => new()
     {
         Keywords = [.. keywords],
@@ -102,7 +112,25 @@ internal static class Sa1Data
         SummaryMaxChars = 50,
         AiMinIntervalMinutes = 10,
         ApiKey = "test-key",
+        FetchMode = NewsFetchMode.RssThenSummarize,
+        RssTemplate = SearchTemplate,
+        RssFallbackTemplates = [],
     };
+
+    /// <summary>共享频道源场景：主源不含 {q}。</summary>
+    public static AppConfig SharedConfig(params string[] keywords)
+    {
+        var config = Config(keywords);
+        config.RssTemplate = SharedTemplate;
+        return config;
+    }
+
+    /// <summary>连续 i 条、每条比前一条早 1 分钟的 RSS 条目。</summary>
+    public static (string Title, string Link, DateTimeOffset? Published)[] FreshItems(int count, string prefix = "标题")
+    {
+        var now = DateTimeOffset.UtcNow;
+        return [.. Enumerable.Range(1, count).Select(i => ($"{prefix}{i}", $"https://example.com/{prefix}{i}", (DateTimeOffset?)now.AddMinutes(-i)))];
+    }
 
     public static RawNewsItem Raw(string url, string title, string? description = null, DateTimeOffset? publishedAt = null, string keyword = "武汉")
         => new()

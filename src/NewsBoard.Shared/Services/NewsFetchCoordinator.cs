@@ -79,7 +79,7 @@ public sealed class NewsFetchCoordinator
         {
             channel = RssChannel;
             if (rssSource is null) return Degraded(channel, "未注册「RSS」新闻来源，本轮无数据");
-            raw = await FetchAllAsync(rssSource, keywords, config, cancellationToken).ConfigureAwait(false);
+            raw = await FetchRssAsync(rssSource, keywords, config, cancellationToken).ConfigureAwait(false);
         }
         else if (config.FetchMode == NewsFetchMode.WebSearch)
         {
@@ -116,7 +116,7 @@ public sealed class NewsFetchCoordinator
 
                 warning = $"{warning ?? "联网搜索未返回结果"}，已回退 RSS";
                 channel = RssChannel;
-                raw = await FetchAllAsync(rssSource, keywords, config, cancellationToken).ConfigureAwait(false);
+                raw = await FetchRssAsync(rssSource, keywords, config, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -193,6 +193,25 @@ public sealed class NewsFetchCoordinator
 
     private static FetchResult Degraded(string channel, string warning)
         => new() { Channel = channel, Warning = warning };
+
+    /// <summary>
+    /// 抓 RSS：模板含 {q} 的搜索型源按关键字并发各抓一次；
+    /// 不含 {q} 的共享频道源整轮只抓一次，避免按关键字重复请求同一频道。
+    /// </summary>
+    private static async Task<List<RawNewsItem>> FetchRssAsync(
+        INewsSource source,
+        IReadOnlyList<string> keywords,
+        AppConfig config,
+        CancellationToken cancellationToken)
+    {
+        if (source is ISharedChannelNewsSource shared && !RssNewsSource.HasKeywordPlaceholder(config.RssTemplate))
+        {
+            var sharedItems = await shared.FetchSharedAsync(config, cancellationToken).ConfigureAwait(false);
+            return [.. sharedItems];
+        }
+
+        return await FetchAllAsync(source, keywords, config, cancellationToken).ConfigureAwait(false);
+    }
 
     private static async Task<List<RawNewsItem>> FetchAllAsync(
         INewsSource source,

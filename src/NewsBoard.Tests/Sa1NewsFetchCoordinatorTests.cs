@@ -210,7 +210,7 @@ public class Sa1NewsFetchCoordinatorTests
         var (coordinator, handler, repository, _) = Build(config, temp, request =>
         {
             if (request.Url.Contains("/chat/completions", StringComparison.Ordinal)) return Default(config)(request);
-            if (request.Url.Contains("/news/search", StringComparison.Ordinal)) return Default(config)(request);
+            if (request.Url.Contains(Sa1Data.RssHost, StringComparison.Ordinal)) return Default(config)(request);
             return FakeHttp.Ok(
                 """<html><head><meta property="og:image" content="/img/cover.jpg"></head></html>""",
                 "text/html");
@@ -233,7 +233,7 @@ public class Sa1NewsFetchCoordinatorTests
 
         await coordinator.FetchAsync();
 
-        Assert.Equal(1, handler.CountOf("/news/search"));
+        Assert.Equal(1, handler.CountOf(Sa1Data.RssHost));
         Assert.Equal(1, handler.CountOf("/chat/completions"));
         Assert.Equal(2, handler.Count);
     }
