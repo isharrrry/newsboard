@@ -2,6 +2,17 @@
 
 本仓库是「安卓大字新闻看板」的实施方案落地：Blazor 类库 + MAUI(Android) 宿主 + WPF(WebView2) 宿主。
 
+## 文档导航与维护纪律
+
+| 文档 | 写什么 |
+|---|---|
+| `README.md` | **使用者视角**：怎么跑（三种运行形态 + Android 前置点源）、界面与操作（含灭屏点屏唤醒）、设置页分组、配置/缓存/Key 在哪、新闻数据流、已知限制 |
+| `news-board.plan.md` | **方案与历史**：决策记录 D1–D5、架构与项目结构、§4 配置项清单（与 `AppConfig` 对齐）、§5 播放引擎、§6 采集与提炼、§8 任务状态表、§10 修订记录 R1–R6、§11–§14 逐轮迭代与事故记录 |
+| `AGENTS.md`（本文件） | **开发约定**：命令、目录与文件所有权、冻结契约、编码约定、以及全部**实测事实**（含踩过的坑） |
+| `docs/android-env-report.md` | Android 工具链环境实测报告 |
+
+**纪律：改了行为、配置项或命令，必须在同一次提交里同步这三处** —— `README.md`（会改变用户操作方式的部分）、`AGENTS.md`（约定与实测事实）、`news-board.plan.md`（§4 配置清单 + 对应迭代章节 + §10 修订记录）。**不允许**出现「代码里有、文档里没有」的配置项。
+
 ## 构建 / 测试命令
 
 ```powershell
@@ -30,7 +41,7 @@ dotnet run --project src\NewsBoard.Maui -f net10.0-windows10.0.19041.0
 MAUI 的 Windows 头用 `WindowsPackageType=None`（非打包）运行，需要 Windows App Runtime（本机已装 1.6 / 1.7 / 1.8）。
 Android 工具链在 **`D:\Android`**：JDK 17 于 `D:\Android\jdk-17`、Android SDK 于 `D:\Android\Sdk`（platform-36 / build-tools 36.0.0 / platform-tools）、NDK 27.2.12479018。
 **构建 Android 前必须先点源 `scripts\android-env.ps1`**（本机执行策略是 `Restricted`，故需先 `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force`）；否则报 `XA5300 找不到 Android SDK`。环境现状与占用清单见 `docs\android-env-report.md`。
-无 Android 设备/模拟器（`adb devices` 为空）→ 装机运行类验证做不了。
+**Android 真机（2026-10-08 末次检测）**：`adb devices` 有 **1 台**已授权设备 —— Xiaomi `M2011K2C`（Redmi K40），Android 13 / SDK 33 / arm64-v8a，序列号 `c6e5ecef`，**尚未安装本应用**。此前各轮记录的「本机无设备/模拟器」是当时的真实状态；现在装机类验证（T1/T2/T3/T4b/T8/T12/T13 的 Android 侧）**具备条件但尚未执行**。
 
 ## 目录与文件所有权
 

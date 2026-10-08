@@ -1,7 +1,8 @@
 # MauiNewsBoard — 安卓大字新闻看板 · 实施方案
 
-> 类型：实施计划（plan）。状态：**已 Approve，实施中（2026-10-08 开工，多子代理并行；逐项完成状态见 §8）**。
+> 类型：实施计划（plan）。状态：**已 Approve，实施中（2026-10-08 开工，多子代理并行；逐项完成状态见 §8，后续迭代见 §11–§14）**。
 > 技术栈：Blazor（RCL）+ .NET MAUI Blazor Hybrid（Android）+ WPF + WebView2（Windows），三个 csproj。
+> 配套文档：`README.md`（怎么跑、配置与数据在哪）、`AGENTS.md`（开发约定 + 冻结契约 + 全部实测事实）、`docs/android-env-report.md`（Android 环境实测报告）。
 
 ---
 
@@ -23,7 +24,7 @@
 ### 做
 - **Android**：常驻看板，大字新闻轮播；亮 60s → 全黑 300s → 循环，全程不锁屏。默认显示系统状态栏，设置里可切沉浸式全屏（fb-10）。
 - **Windows**：同一套 Razor 组件，由 **WPF + WebView2** 承载；默认普通带标题栏窗口，设置里可切无边框全屏（fb-10）。不做常亮/黑屏那套，桌面无此需求。
-- 定时（默认 5 分钟）获取新闻 → LLM 提炼成 50 字左右摘要 → 轮播。
+- 定时（默认 5 分钟）获取新闻 → LLM 提炼成 **70 字**左右摘要并给出**重要度评分**（低于门槛不播）→ 轮播。
 - **语音播报**：系统 TTS 把当前新闻概要念一遍（可关闭）；朗读结束即该条播放结束，切下一条。
 - 全部外观/行为参数可在 App 内配置并持久化。
 - 两种播放模式：纯文字、文字+图片。
@@ -46,9 +47,9 @@
 
 配置项 `新闻获取方式` 三选：`RSS+提炼`（默认）/ `模型联网搜索` / `自动`（先试联网，不可用回退 RSS）。架构上抽成 `INewsSource`，换通道不动业务代码。
 
-### D2｜图片来源 —— **源站 og:image，取不到就纯文字**
+### D2｜图片来源 —— **源站四级兜底；正文没图就不出图**（§14 修订）
 
-从源站文章页抓 `og:image`。失败/超时 3s → 退化为纯文字卡片，不留破图。
+从源站文章页按四级取图：`og:image` → `twitter:image` → `link[rel=image_src]` → **正文首图**；每个候选都发 Range 请求验证真的返回 `image/*`（中新网图床防盗链，直接取回的是 HTML）。取不到 → 退化为纯文字卡片，不留破图。**同一张图只能属于一条新闻**（模板图/页脚图会造成多条重复）。详见 §6.6 与 §14。
 
 ### D3｜亮熄节奏 —— **亮 60s（窗口内播若干条）→ 黑 300s → 循环**
 
@@ -60,7 +61,7 @@
 |---|---|---|
 | `NewsBoard.Shared` | `net10.0` | Razor 类库（RCL）：**全部** UI 组件、wwwroot（css/js）、配置模型、抓取、提炼、播放引擎、平台抽象接口。**零平台依赖** |
 | `NewsBoard.Maui` | `net10.0-android`；`net10.0-windows10.0.19041.0` | Android 宿主（MAUI Blazor Hybrid）。Windows TFM 保留用于 PC 上快速调试 Blazor 层。提供 Android 平台实现（屏幕控制、TTS） |
-| `NewsBoard.Wpf` | `net10.0-windows` | Windows 桌面宿主：WPF + `Microsoft.AspNetCore.Components.WebView.Wpf`（基于 WebView2）承载同一套 Razor 组件。提供 Windows 平台实现（TTS） |
+| `NewsBoard.Wpf` | `net10.0-windows10.0.19041.0`（**必须带版本化平台号**，见 R2） | Windows 桌面宿主：WPF + `Microsoft.AspNetCore.Components.WebView.Wpf`（基于 WebView2）承载同一套 Razor 组件。提供 Windows 平台实现（TTS） |
 
 依赖方向单一：`Maui → Shared`、`Wpf → Shared`；**Shared 永远不反向依赖宿主**。
 
@@ -92,40 +93,61 @@ maui-news-board/
     │   │   ├── Pages/Settings.razor          （配置页）
     │   │   └── Shared/NewsCard.razor         （单条渲染：纯文字 / 图文）
     │   ├── Services/
-    │   │   ├── AppConfig.cs                  （全部配置模型）
-    │   │   ├── ConfigStore.cs                （JSON 持久化 + Key 存平台安全存储）
-    │   │   ├── INewsSource.cs
-    │   │   ├── RssNewsSource.cs              （D1-B）
-    │   │   ├── WebSearchNewsSource.cs        （D1-A）
-    │   │   ├── NewsSummarizer.cs             （DeepSeek 提炼 + JSON 解析 + 重试）
-    │   │   ├── NewsRepository.cs             （缓存 + URL 去重）
-    │   │   ├── PlaybackEngine.cs             （播放状态机）
+    │   │   ├── AppConfig.cs                  （全部配置模型 + Clone/NormalizeKeywords）
+    │   │   ├── ConfigStore.cs                （JSON 持久化 + 覆盖前留 .bak + Key 存平台安全存储）
+    │   │   ├── NewsBoardDataDirectory.cs     （数据目录唯一解析点，NEWSBOARD_DATA_DIR 可覆盖）
+    │   │   ├── RssNewsSource.cs              （D1-B：共享频道源 + 备用链）
+    │   │   ├── WebSearchNewsSource.cs        （D1-A：Anthropic 兼容 + web_search 工具）
+    │   │   ├── ArticleContentFetcher.cs      （抓原文正文：5s 超时 / 去噪 / 截推荐位）
+    │   │   ├── NewsSummarizer.cs             （提炼 + importance + keyword + 严格 JSON 解析 + 重试）
+    │   │   ├── SummaryText.cs                （摘要本地二次校验：1.2 倍上限截到句号）
+    │   │   ├── ImportanceScoring.cs          （重要度解析容错 + 整批退化时按秩均衡）
+    │   │   ├── KeywordClassifier.cs          （按配置关键字归类，兜底频道名）
+    │   │   ├── ImageResolver.cs              （四级取图 + Range 校验 + 独占去重）
+    │   │   ├── NewsFetchCoordinator.cs       （一轮抓取编排：去重 → 提炼 → 正文 → 配图）
+    │   │   ├── NewsFetchScheduler.cs         （启动即抓 + 按间隔循环）
+    │   │   ├── NewsRepository.cs             （缓存 + URL 去重 + 门槛过滤 + 自然日剪枝）
+    │   │   ├── RetentionWindow.cs            （按自然日分桶的保留窗口，纯逻辑）
+    │   │   ├── PlaybackEngine.cs             （播放状态机 + WakeAsync 点屏唤醒 + 首帧闸门）
+    │   │   ├── MonitorPowerPolicy.cs         （Windows 真关屏的护栏判定 + 幂等，纯逻辑）
+    │   │   ├── ServiceCollectionExtensions.cs（AddNewsBoardCore / InitializeNewsBoardAsync）
     │   │   └── Abstractions/
-    │   │       ├── IScreenController.cs      （常亮 / 黑屏 / 亮度）
-    │   │       ├── ISpeechService.cs         （TTS：朗读 + 完成回调）
-    │   │       └── ISecretStore.cs           （API Key 安全存储）
+    │   │       ├── IScreenController.cs      （常亮 / 黑屏 / 亮度 / 真关屏）
+    │   │       ├── ISpeechService.cs         （TTS：朗读 + 完成回调 + 语音包探测）
+    │   │       ├── ISecretStore.cs           （API Key 安全存储）
+    │   │       ├── IAutoStart.cs             （开机自启开关）
+    │   │       ├── ILinkOpener.cs            （系统浏览器打开原文）
+    │   │       ├── INewsSource.cs / INewsRepository.cs / IConfigProvider.cs / IClock.cs
     │   └── wwwroot/
     │       ├── css/app.css                   （大字排版、滚动动画、过渡）
     │       └── js/measure.js                 （溢出测量 + 滚动进度回调）
-    ├── NewsBoard.Maui/                       ← ② Android 宿主
-    │   ├── NewsBoard.Maui.csproj             （net10.0-android; net10.0-windows10.0.19041.0）
-    │   ├── MauiProgram.cs                    （DI：注册平台实现）
+    ├── NewsBoard.Maui/                       ← ② Android 宿主（还可编 Windows 头，便于在 PC 上调试同一套 Blazor 层）
+    │   ├── NewsBoard.Maui.csproj             （net10.0-android; net10.0-windows10.0.19041.0，后者 WindowsPackageType=None）
+    │   ├── MauiProgram.cs                    （DI：按平台注册实现 + 末尾 InitializeNewsBoardAsync）
+    │   ├── NewsBoardBoot.cs                  （启动期加载配置与抓取的入口）
     │   ├── App.xaml(.cs) / MainPage.xaml(.cs)（BlazorWebView 宿主；默认显示系统状态栏，可配沉浸式全屏）
     │   ├── Platforms/Android/
-    │   │   ├── AndroidManifest.xml           （INTERNET、WAKE_LOCK、POST_NOTIFICATIONS）
-    │   │   └── MainActivity.cs
-    │   └── Services/
-    │       ├── AndroidScreenController.cs    （KeepScreenOn + 窗口亮度 0 + 恢复）
-    │       ├── AndroidSpeechService.cs       （原生 Android.Speech.Tts + UtteranceProgressListener）
-    │       └── MauiSecretStore.cs            （SecureStorage）
+    │   │   ├── AndroidManifest.xml           （INTERNET、WAKE_LOCK、POST_NOTIFICATIONS、RECEIVE_BOOT_COMPLETED）
+    │   │   ├── MainActivity.cs / MainApplication.cs
+    │   │   ├── AndroidScreenController.cs    （KeepScreenOn + 窗口亮度 0 + 恢复）
+    │   │   ├── AndroidSpeechService.cs       （原生 Android.Speech.Tts + UtteranceProgressListener）
+    │   │   ├── MauiSecretStore.cs            （SecureStorage）
+    │   │   ├── AndroidAutoStart.cs / AutoStartHelper.cs / BootReceiver.cs / NewsBoardForegroundService.cs
+    │   │   └── AndroidLinkOpener.cs
+    │   └── Platforms/Windows/                （Windows 头：同一套 Razor 组件跑桌面）
+    │       ├── App.xaml(.cs) / app.manifest
+    │       ├── WindowsScreenController.cs    （SC_MONITORPOWER 真关屏 + 前台/全屏护栏）
+    │       └── WindowsSpeechService.cs / WindowsSecretStore.cs / WindowsAutoStart.cs / WindowsLinkOpener.cs
     └── NewsBoard.Wpf/                        ← ③ Windows 宿主
-        ├── NewsBoard.Wpf.csproj              （net10.0-windows，WPF，WebView2）
-        ├── App.xaml(.cs)
-        ├── MainWindow.xaml(.cs)              （BlazorWebView 控件，全屏/无边框可配）
+        ├── NewsBoard.Wpf.csproj              （net10.0-windows10.0.19041.0，WPF + WebView2）
+        ├── App.xaml(.cs) / MainWindow.xaml(.cs)（BlazorWebView 承载 Routes；默认带标题栏，可切无边框全屏，Esc/F11 退出）
+        ├── wwwroot/index.html                （显式 Blazor.start() + 可见启动提示）
         └── Services/
-            ├── WpfScreenController.cs        （桌面：空实现 / 可选全屏黑）
+            ├── WpfScreenController.cs        （SC_MONITORPOWER 真关屏 + 前台/全屏护栏）
             ├── WpfSpeechService.cs           （System.Speech.Synthesis.SpeechSynthesizer）
-            └── WpfSecretStore.cs             （DPAPI ProtectedData）
+            ├── WpfSecretStore.cs             （DPAPI ProtectedData）
+            ├── WpfAutoStart.cs               （HKCU Run 键）
+            └── WpfLinkOpener.cs              （系统浏览器打开原文）
 ```
 
 ### 3.2 数据流
@@ -136,8 +158,8 @@ flowchart TD
   S --> RAW["原始条目<br/>标题/链接/时间/来源/正文片段"]
   RAW --> DEDUP["NewsRepository 去重<br/>URL 哈希"]
   DEDUP -->|仅新条目| SUM["NewsSummarizer → DeepSeek"]
-  SUM --> JSON["JSON: 标题 / 摘要≤50字 / 关键字"]
-  JSON --> IMG["ImageResolver<br/>仅图文模式: og:image"]
+  SUM --> JSON["JSON: 标题 / 摘要≤70字 / 重要度 / 分类关键字"]
+  JSON --> IMG["ImageResolver<br/>仅图文模式：四级取图 + 独占去重"]
   IMG --> CACHE["NewsRepository 缓存"]
   CACHE --> ENGINE["PlaybackEngine 状态机"]
   ENGINE --> UI["Display.razor 渲染 + CSS 动画"]
@@ -166,24 +188,29 @@ flowchart TD
 
 ## 4. 配置项清单（App 内设置页，JSON 持久化）
 
+设置页按 **iOS 分组列表**排版（`.settings-card`，`settings.css`），分组顺序与页面一致：**显示模式 → API / 采集 → 外观 → 播放 / 语音 → 系统 / 宿主**；顶部栏与底部操作条（保存 / 取消 / 恢复默认）`position:fixed` 贴真实视口。控件 id 与配置项的对应见 `README.md`。
+
 ### 4.1 API / 采集
 
 | 配置项 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
 | 新闻获取方式 | enum | `自动` | `RSS+提炼` / `模型联网搜索` / `自动`（**修订 R1**：原默认 `RSS+提炼`） |
 | BaseUrl | string | `https://api.deepseek.com` | OpenAI 兼容端点（RSS 提炼通道） |
-| Model | string | `deepseek-flash` | 模型名可填（官方名是 `deepseek-chat`） |
+| Model | string | `deepseek-chat` | 模型名可填（后端实际回显 `deepseek-v4-flash`；OpenAI 的 `deepseek-chat` 是官方名） |
 | BaseUrlSearch | string | `https://api.deepseek.com/anthropic` | 联网搜索端点（Anthropic 兼容） |
 | 联网搜索 max_uses | int | `3` | 每关键字允许模型调用搜索工具次数 |
 | ApiKey | string | 空 | 存平台安全存储，**不落 JSON 明文** |
 | 关键字列表 | string[] | `武汉, 中国, 美国, 台湾, 国际, AI` | 可增删排序 |
 | 每关键字篇数 X | int | `3` | 每关键字各取 X 篇 |
 | 抓取间隔 | int(分钟) | `5` | 定时抓取周期 |
-| 摘要字数 | int | `120` | ±10 字软约束；实测模型常超字数，两条通道都在本地按「上限 1.4 倍 → 最后一个句号」截断 |
+| 摘要字数 | int | `70` | 提示词软约束「写到 55–70 字最好」；**实测模型会超字数**，故两条通道都过 `SummaryText.Normalize` 本地二次校验：超过 **1.2 倍**（84 字）截到最后一个句号 |
 | AI 最小调用间隔 | int(分钟) | `10` | 防止源站抖动重复烧 token |
 | RSS 源模板 | string | 中新网滚动新闻 | **修订 R1**：原 `https://www.bing.com/news/search?q={q}&format=RSS` 已失效（返回 HTML）；新默认 `https://www.chinanews.com.cn/rss/scroll-news.xml`，含 `{q}` 时按关键字各抓一次，不含则视为共享频道源只抓一次 |
 | RSS 备用源 | string[] | 人民网 politics + IT之家 | **新增（R1）**：主源失败时按序回退 |
 | 只用当天新闻 | bool | `true` | 过滤超过 24h 的旧闻 |
+| 摘要语言 | enum | `简体中文` | **新增（R4）**：简体中文 / 繁體中文 / English；两条通道的提示词都写入硬约束（简体那条明确「禁止出现繁体字、禁止中英夹杂」），见 §12① |
+| 重要度门槛 | double | `0.7` | **新增（R5）**：模型给每条打 0–1 分，低于门槛不进播放列表；`Importance` 为 null 的旧条目保留 |
+| 缓存保留天数 | int | `3` | **新增（R5）**：**按自然日分桶**（保留「今天 + 前两天」），见 §14① |
 
 ### 4.2 外观
 
@@ -199,15 +226,17 @@ flowchart TD
 | 关键字标签字号 | int(sp) | `28` |
 | 文字对齐 | enum | 居中 |
 | 显示时钟 | bool | `true` |
+| 时钟字号 | int(sp) | `32`（**新增 R4**：不再由关键字标签字号推导，见 §12⑤） |
+| 时钟字体 | string | 空 = 跟随系统（**新增 R4**：例如 `Microsoft YaHei`） |
 | 显示关键字标签 | bool | `true` |
-| 显示新闻标题 | bool | `false` | 卡片默认只显示摘要（标题与摘要常高度重合，同屏重复无意义），需要时可开 |
+| 显示新闻标题 | bool | `false`（卡片默认只显示摘要：标题与摘要常高度重合，同屏重复无意义；需要时可开） |
 | 显示新闻来源 | bool | `false` |
 
 ### 4.3 播放 / 语音
 
 | 配置项 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
-| 播放模式 | enum | 纯文字 | 纯文字 / 文字+图片 |
+| 播放模式 | enum | 纯文字 | 纯文字 / 文字+图片。设置页已把它提到**第一屏「显示模式」组**（`playbackMode` + `showImages` 派生开关同源联动），见 §14⑥ |
 | **启用语音播报** | bool | `true` | 关掉则回退固定停留时长 |
 | 播报内容 | enum | 仅摘要 | 仅摘要 / 标题+摘要 |
 | 语速 | double | `1.0` | 0.5–2.0 |
@@ -225,7 +254,7 @@ flowchart TD
 | 窗口到点行为 | enum | 念完当前条 | 念完当前条 / 立即中断 |
 | 图文模式图片位置 | enum | 上图下文 | 上图下文 / 左图右文 |
 | 图片占屏比例 | int(%) | `40` | |
-| 轮播顺序 | enum | 按关键字顺序 | 按关键字顺序 / 按发布时间 / 随机 |
+| 轮播顺序 | enum | `随机` | 按关键字顺序 / 按发布时间 / 随机（**R5 改默认**：只播达标条目，顺序打散避免每天都是同几条第位） |
 | 跨轮续播 | bool | `true` | 单条未播完是否下一轮接着播 |
 
 ### 4.4 系统 / 宿主
@@ -249,8 +278,8 @@ stateDiagram-v2
   [*] --> SHOW
   SHOW: SHOW 亮屏窗口 T_show=60s
   SHOW --> BLACKOUT: 窗口到点（按“念完当前条/立即中断”）
-  BLACKOUT: BLACKOUT T_black=300s<br/>画面全黑 + 亮度 0 + TTS 停止<br/>KeepScreenOn 保持不动
-  BLACKOUT --> SHOW: 到点恢复亮度与画面
+  BLACKOUT: BLACKOUT T_black=300s<br/>画面全黑 + 亮度 0 + TTS 停止<br/>KeepScreenOn 保持不动<br/>（Windows 宿主另广播真关显示器）
+  BLACKOUT --> SHOW: 到点恢复亮度与画面；灭屏中点一下屏幕立即唤醒（WakeAsync）
 ```
 
 - 黑屏期间**不切换 `KeepScreenOn`** —— 屏幕物理上一直亮着，所以系统不会锁屏；“熄屏”只是看起来黑。
@@ -285,7 +314,7 @@ stateDiagram-v2
 ### 5.4 两种播放模式
 
 - **纯文字**：关键字标签 + 大字摘要 +（可选）时钟。
-- **文字+图片**：`og:image` 成功 → 按 `图片位置` + `图片占屏比例` 布局；失败 → 退化为纯文字。
+- **文字+图片**：四级取图成功 → 按 `图片位置` + `图片占屏比例` 布局；失败或**正文没图** → 退化为纯文字（不出占位图、不留破图）。同一张图不会出现在两条新闻上，见 §6.6。
 
 ---
 
@@ -306,30 +335,38 @@ stateDiagram-v2
 ### 6.2 通道 A：模型联网搜索
 
 - 每关键字一次请求：`POST {BaseUrlSearch}/v1/messages`，`tools:[{type:"web_search_20250305", name:"web_search", max_uses:N}]`，模型同 `Model`。
-- Prompt：针对该关键字联网检索当天新闻，挑最新 X 篇，**只依据检索结果**输出严格 JSON `[{"title","summary","url","keyword"}]`，每条 ≤ 50 汉字。
+- Prompt：针对该关键字联网检索当天新闻，挑最新 X 篇，**只依据检索结果**输出严格 JSON（含 `title` / `summary` / `url` / `importance` / `keyword`），摘要 ≤ `摘要字数`（默认 70 字）并遵守「摘要语言」硬约束（§12①、§12⑥）。
 - 从返回文本提取 JSON（容忍 ```json 围栏）。
 - T0 实测该端点；不通则整体走通道 B。
 
 ### 6.3 提炼（`NewsSummarizer`，通道 B 用）
 
-- `OpenAI` NuGet 包，`Endpoint = BaseUrl`，标准 `/chat/completions`（DeepSeek 完全兼容）。
+- 用 `HttpClient` 直接打 `POST {BaseUrl}/chat/completions`（**不引入第三方 SDK**：DeepSeek 完全兼容 OpenAI 协议，JSON 用 `System.Text.Json`）。
 - **批量**：同一关键字的 X 篇原文一次请求。
-- Prompt 硬约束：只依据原文、**严禁编造**数字/时间/人名；每条 ≤ 50 汉字，讲清「谁 + 做了什么 + 结果/影响」；输出严格 JSON 数组；信息不足则 `summary` 置空（客户端跳过）。
-- 失败：超时 15s → 重试 1 次 → 仍失败则退化为「原标题截断到 50 字」。
-- 本地二次校验：> 70 字截断到最后一个句号。
+- Prompt 硬约束：只依据原文、**严禁编造**数字/时间/人名；每条 ≤ `摘要字数`（默认 70 字）、写 1–2 句「谁 + 做了什么 + 数字/结果」、不复述标题；输出严格 JSON 数组；信息不足则 `summary` 置空（客户端跳过）；同时要求 `importance`（相对最近三天）与 `keyword`（从配置关键字里挑，白名单校验）。
+- 失败：超时 → 重试 1 次 → 仍失败则退化为「原标题截断」。
+- 本地二次校验：`SummaryText.Normalize` —— 超过 `摘要字数` 的 **1.2 倍**截断到最后一个句号（实测模型普遍超字数）。
 
 ### 6.4 去重与成本控制
 
-- **按文章 URL 哈希去重**，已提炼过的永不再调 AI。
+- **按文章 URL 哈希去重**，已提炼过的永不再调 AI（实测：连跑两轮，第二轮 `chat=0`）。
 - 抓取（5 分钟）与提炼（仅新条目）解耦。
 - `AI 最小调用间隔` 兜底。
+- 正文与配图也限量：每轮最多补抓正文 **5** 条（并发 2）、补配图 **8** 条（§6.6）。
 - 量级：稳定后一小时新文章通常 10–40 条，成本极低。
 
 ### 6.5 缓存与降级
 
-- 缓存最近 3 天条目（SQLite 或 `news.json` 于平台 AppData）。
-- 断网 → 播缓存 + 离线小点。
-- AI 全失败 → 播缓存旧条目；缓存也空 → 显示「正在获取新闻…」。
+- 缓存保留 `RetentionDays` 天（默认 3，**按自然日分桶**：今天 + 前两天，起点是前天的本地零点），落 `news.json` 于平台 AppData；过期条目连同 URL 去重记录一起清理（离线新闻因此可被重新抓取）。见 §14①。
+- 断网 → 播缓存。
+- AI 全失败 → 播缓存旧条目（`Importance` 为 null 的条目不受门槛过滤）。
+- 门槛过滤后播放列表为空 → 随机补一条缓存条目并在摘要末尾加 ` ~` 标记（给副本，不污染缓存），避免画面永远停在「正在获取新闻…」。见 §14③。
+
+### 6.6 正文抓取与配图（2026-10-08 补，见 §14②⑤）
+
+- **正文**：`ArticleContentFetcher`（无第三方包，5s 超时，异常一律吞成 null）。本轮的条目里 `Description` < 300 字的、每轮最多 5 条、并发 2，去原文页抓正文；抓到就写回 `RawNewsItem.Description` ⇒ **提炼输入与缓存 `RawContent` 都用真正文**，并用正文重新归一次类。正文 < 60 字一律视为失败（极短快讯退回 RSS 描述）；`ExtractMainText` 会砍掉「(完)」之后的推荐位。
+- **配图四级**：`og:image` → `twitter:image` → `link[rel=image_src]` → 正文首图（优先正文容器内、`<p>` 之后，跳过 logo/图标/占位图/早于文章日期 60 天以上的模板素材）；每个候选发 `Range: bytes=0-2047` 校验真的返回 `image/*`。
+- **独占**：`ImageResolver.DedupeImages` + `ApplyImagesAsync(..., reservedImageUrls)` —— 同一张图只归一条新闻（按发布时间从新到旧），新抓的图不得复用在挂的图；拿不到独占图就按「正文没图」处理，**不出图**。每轮另对全量缓存去一次重。
 
 ---
 
@@ -394,6 +431,10 @@ stateDiagram-v2
 
 **状态口径**：✅ = 按原验证方式完成并有实测证据；🟡 = 部分完成，受限项已在单元格内写明（本轮主要受限项是「本机无 Android 设备/模拟器」与「UI 自动化注入受限」）；⬜ = 未开始。
 
+> **后续迭代**：本表只覆盖第一轮交付（T0–T13）。其后的用户反馈迭代见 **§12**（摘要语言 / 时钟字体 / 图文模式 / 重要度筛选）、**§14**（自然日分桶 / 正文抓取 / 关键字归类 / 配图独占 / 空列表兜底 / 显示模式置顶）、以及 **§13** 的事故修复。
+> **Android 真机（2026-10-08 末次检测）**：`adb devices` 已检测到 1 台已授权真机（Xiaomi `M2011K2C` / Android 13 / SDK 33 / arm64-v8a，序列号 `c6e5ecef`，未安装本应用）。表中「本机无设备」是各轮执行当时的真实状态；装机类验证（T1/T2/T3/T4b/T8/T12/T13 的 Android 侧）**现具备条件但尚未执行**。
+> **当前门禁基线（2026-10-08 末次）**：`dotnet build NewsBoard.slnx`（WPF + MAUI/Android + MAUI/Windows 三头）0 警告 0 错误；`dotnet test` **222/222**（含连续 5 次全绿）。
+
 > **端到端联调（2026-10-08 第 6 轮，真实密钥 + 真实网络）**：WPF 宿主从启动到画面全部打通 —— 启动 → 抓取 RSS → DeepSeek 提炼 → 落盘 `%LOCALAPPDATA%\NewsBoard\news.json`（应用自己写出的 10 条，摘要 34/38/37 字）→ 大字轮播渲染 → 15s 后全黑 → 10s 后回到亮屏，每一步都有 `PrintWindow` 真实截图或落盘文件佐证。
 >
 > **播放页控制（2026-10-08 后续轮次，MAUI(Windows) 实机点击验证）**：五个图标按钮（上一条/下一条/打开原文/打断/设置）在真实窗口上被真实鼠标点击验证 —— 上一条正文区变化 **51.3%**、下一条 **47.7%**、打开原文使前台变 `msedge` 且标签 4→5（新标签标题=当前新闻）、打断后画面平均亮度 **0**（全黑，且灭屏期间控制条隐藏）。**灭屏中点一下屏幕即唤醒**：亮度 58.4 → 打断 0 → 点一下 **58.4** → 再打断 0。摘要长度随之收短（默认 70 字 + 本地 1.2 倍上限）：RSS 提炼 **53–66 字**、联网搜索 **72–84 字**；卡片默认不显示标题（`ShowTitle=false`）。
@@ -431,6 +472,9 @@ stateDiagram-v2
 | **Android 10+ 禁止后台启动 Activity + 厂商自启动管理** | 开机自启失效（默认值已定为 true） | `RECEIVE_BOOT_COMPLETED` → 前台服务 + 全屏通知，不走 `StartActivity`；设置页提供厂商白名单引导 |
 | token 成本失控 | 花钱 | URL 去重 + 最小调用间隔 + 批量提炼 |
 | 图片版权 | 合规 | 仅用源站自身图片 |
+| **配图重复 / 模板图** | 多条新闻显示同一张图，看着像「配错图」 | 四级取图排除站点装饰图与陈旧模板素材 + Range 校验；同一张图只归一条新闻，取不到独占图就不出图（§6.6） |
+| **门槛过滤后播放列表为空** | 画面停在「正在获取新闻…」，看着像卡死 | 空列表随机补一条缓存条目 + `~` 标记（§14③） |
+| **自动化脚本写进用户真实数据目录** | 用户配置被测试夹具覆盖（已真实发生一次） | 探针脚本一律 `$env:NEWSBOARD_DATA_DIR=<隔离目录>`；`ConfigStore` 覆盖前留 `config.json.bak`（§13） |
 | APK 体积大 | 装机慢 | §7 trimming 组合 |
 
 ---
@@ -447,6 +491,10 @@ stateDiagram-v2
 | **R1** | 实施期实测：Bing News RSS 端点已失效 | ✅ **契约修订**：§4.1 默认 `新闻获取方式` `RSS+提炼` → `自动`；`RssTemplate` 默认值换成实测可用频道源，新增 `RssFallbackTemplates` 备用链（含 `{q}` = 关键字各抓一次 / 不含 = 共享源只抓一次）；§6.1 补修订说明。证据：Bing `?format=RSS` 返回 `text/html`、百度 `newsrss` 返回安全验证页、Google News RSS 超时；中新网 / 人民网 / IT之家 频道源实测可用 |
 | **R2** | 实施期实测：WPF 宿主 TFM 需版本化平台号 | ✅ **约定修订**：WPF TFM 由 `net10.0-windows` 改为 `net10.0-windows10.0.19041.0`（裸 TFM 启动即崩 `FileNotFoundException: Microsoft.Windows.SDK.NET`）；`AGENTS.md` 同步。另记录 DPAPI 无需 NuGet 包、`System.Speech` 用 10.0.7 |
 | **R3** | 使用反馈：标题与摘要内容高度重合，且摘要太短 | ✅ **契约修订**：① 新增 `AppConfig.ShowTitle`（默认 `false`）——卡片默认只显示摘要，标题需显式打开；② `SummaryMaxChars` 默认 `50` → **`120`**；两条通道的提示词由「写一句」改为「写 2–3 句连贯的话，先交代谁+做了什么，再补关键数字/结果，最后补影响或后续，不复述标题」；③ 新增 `SummaryText.Normalize` 作为两条通道共用的本地二次校验（模型实测会超字数：联网通道出现过 183 字），按「上限 1.4 倍 → 截到最后一个句号」收敛。实测：RSS 通道摘要由 23–36 字变为 61–98 字，联网搜索通道 77–168 字（平均 137） |
+| **R3b** | 使用反馈：摘要还是偏长 | ✅ **契约修订**：`SummaryMaxChars` 默认 `120` → **`70`**，提示词改为「写 1–2 句、先交代谁+做了什么、再补关键数字/结果、不复述标题」，本地二次校验上限 1.4 → **1.2 倍**。实测（同 Key）：RSS 提炼 139–162 字 → **53–66 字**，联网搜索 137 字 → **72–84 字** |
+| **R4** | 使用反馈：出现繁体新闻、要语言设置；时钟字体要有默认值且能设置 | ✅ **契约修订**：新增 `AppConfig.SummaryLanguage`（简体中文默认 / 繁體中文 / English）+ `SummaryLanguageText.PromptRule()`；新增 `ClockFontSizeSp`（默认 32，不再由关键字字号推导）与 `ClockFontFamily`（默认跟随系统）。详见 §12①⑤ |
+| **R5** | 使用反馈：新闻要用大模型筛选（重要度 + 三天缓存 + 随机显示） | ✅ **契约修订**：`NewsItem.Importance`（`double?`）、`NewsItem.RawContent`、`AppConfig.ImportanceThreshold`（默认 0.7）与 `RetentionDays`（默认 3）；`PlayOrder` 默认改 **`Random`**；新增 `ImportanceScoring`（解析容错 + 整批退化时按秩均衡）。详见 §12⑥ |
+| **R6** | 使用反馈：按自然日分桶保留 3 天 / 能抓正文就抓正文 / 门槛空列表补一条 / 分类关键字不显示 / 图片重复 / 配置与 Key 位置 | ✅ **契约与实现修订**：新增 `RetentionWindow`（自然日分桶）、`ArticleContentFetcher`（正文抓取）、`KeywordClassifier`（关键字归类）、配图独占去重、`GetPlaylist` 空列表兜底（` ~`）；设置页「显示模式」组提到第一屏。详见 §14 |
 
 ---
 
@@ -493,6 +541,8 @@ stateDiagram-v2
 10. `设置页 iOS 分组排版修复 + 摘要 70 字 + 灭屏点屏唤醒` —— 修设置页无法滚动（自成滚动容器）、取消改回看板链接、`WakeAsync`（灭屏点击唤醒）。
     验证：`dotnet test` **124/124**；实机亮度 58.4 → 打断 0 → 点屏 58.4。
 11. `第二轮迭代：语言/时钟字体/图文模式/重要度筛选`（用户六项反馈）—— 见 §12。
+12. `第三轮迭代：自然日保留窗口 + 正文抓取 + 关键字归类 + 配图独占 + 空列表补~ + 设置页显示模式置顶` —— 见 §14；同批修稳 4 条时间敏感偶发红测试（`dotnet test` 由「4 次红 3 次」变为连续 5 次 220/220 全绿），新增 49 条测试。
+13. `修复验证脚本覆盖用户配置的事故` —— 见 §13；新增 `NewsBoardDataDirectory`（`NEWSBOARD_DATA_DIR` 隔离）与 `ConfigStore` 覆盖前留 `.bak`，`dotnet test` 222/222。
 
 ---
 
@@ -507,7 +557,9 @@ stateDiagram-v2
 | ⑤ | 时钟字体要有默认值且能设置 | 新增 `ClockFontSizeSp`（默认 32，不再由关键字字号推导）+ `ClockFontFamily`（默认跟随系统）；`Display.razor` 的 `ClockStyle` 改用它们；设置页「外观」组加两个控件 | ✅ 契约 + 渲染 + 设置项均已落地，`dotnet test` 172/172 |
 | ⑥ | 新闻要用大模型筛选：记录关键字/链接/原始时间/原始内容进缓存 + 提炼概要 + 标重要度（三天内相对均衡、<0.7 不显示、>0.7 随机显示）+ 超三天清理 + 省存储/爬取/重复提炼 | `NewsItem.Importance`（`double?`）+ `NewsItem.RawContent`（RSS 通道存原文截断 2000 字）；两通道提示词要求 `importance`（相对三天、拉开差距、重大 0.8–1.0 / 例行 0.2–0.5）；新增 `ImportanceScoring.Read/Balance`（退化整批按秩展开到 0.15–0.95，null 保留，1–2 条不造高分）；`GetPlaylist` 先按 `ImportanceThreshold` 过滤再排序（null 旧缓存保留、门槛计入随机缓存键）；`PruneExpired` 改用 `config.RetentionDays`（默认 3 天）且清理时同步移除 URL 去重记录（可重新抓取）；设置页加门槛与保留天数控件 | ✅ **实测**：缓存 16 条分布 `0.2-0.4:4 / 0.4-0.6:5 / 0.6-0.8:4 / 0.8-1.0:3`（不堆两端），过 0.7 → 显示 6 条；第二轮同 URL `chat=0`（不重复提炼） |
 
-> **已知边界**：`RetentionDays` 目前是「按发布时间的滑动窗口」而非「按自然日分桶」；联网通道拿不到正文，`RawContent` 对它恒为 null；门槛过滤后播放列表可能为空（此时画面会一直显示「正在获取新闻…」，是配置语义而非卡死）。
+> **本节遗留的三项已在 §14 处理**：① `RetentionDays` 已改为**按自然日分桶**（`RetentionWindow`，不再是从 `now` 往前推 N×24h）；② 门槛过滤后播放列表为空时**随机补一条**并在摘要末尾加 ` ~`（不再永远停在「正在获取新闻…」）；③ 配图改为四级策略 + 独占去重（同一张图只归一条新闻）。
+>
+> **仍然存在的边界**：**联网通道的 `RawContent` 恒为 null** —— 该通道由模型直接返回摘要，不取原文页正文（要正文需再抓原文页，属新增抓取，未做）；RSS 通道的 `RawContent` 已是**真正文**（§14②，每轮最多 5 条补齐历史条目要等后续轮次）。
 
 > **本轮新增测试**：SA7 5 条（设置页新控件与派生开关联动）、SA9 33 条（均衡/解析/门槛/保留/提示词）、本人 11 条（配图四级兜底 9 + 补图 2）。
 
@@ -533,6 +585,24 @@ stateDiagram-v2
 3. **纪律**（已写进 AGENTS.md）：自动化/探针脚本一律 `$env:NEWSBOARD_DATA_DIR=<.tmp 下隔离目录>`，禁止写真实数据目录。
 
 **验证**：恢复后启动 MAUI(Windows) 一轮 → 缓存 15 条，关键字分布 **武汉 3 / 中国 2 / 美国 2 / 台湾 3 / 国际 2 / AI 3**（6 个关键字全部命中真实新闻），画面标签显示「中国」（不再回落成频道名「中新网即时新闻」），截图 `.tmp\kw-restored.png`；`dotnet build NewsBoard.slnx` 三头 **0 警告 0 错误**，`dotnet test` **222/222**（新增 2 条：覆盖写留 `.bak` 且可回滚、`NEWSBOARD_DATA_DIR` 优先于 LocalAppData）。
+
+---
+
+## 14. 第三轮迭代：用户六项反馈（2026-10-08 下半场）—— 修订 **R6**
+
+| # | 用户反馈 | 处理 | 状态 |
+|---|---|---|---|
+| ① | 保留要**按自然日分桶** 3 天 | 新增纯逻辑 `RetentionWindow.EarliestKeptInstant/RetentionSpan`：`RetentionDays=3` ＝ 保留「今天 + 前两天」，起点是**前天的本地零点**（`TimeZoneInfo.Local`）；抓取侧传 `RetentionWindow.RetentionSpan(now, config.RetentionDays)` 给 `PruneExpired`（**签名未变**） | ✅ 与滑动窗口的差别：早上 6 点与晚上 23 点看到的是同一批自然日。测试含「前天 00:00 保留 / 23:59 清掉」边界 |
+| ② | **能抓到正文就尽量抓正文** | 新增 `ArticleContentFetcher`（无第三方包、5s 超时、异常吞成 null）；`NewsFetchCoordinator.BackfillRawContentAsync` 对本轮 `Description` < 300 字的条目、**每轮最多 5 条、并发 2** 抓原文正文，抓到就**写回描述** ⇒ 提炼输入与 `RawContent` 都用真正文，并用正文重新归类；`ExtractMainText` 砍掉「(完)」之后的推荐位 | ✅ **实测**：重建后 MAUI(Windows) 跑一轮，9 条里 4 条 `RawContent` > 300 字（302/620/676/868）；子代理单独对真实站点 **9/9 成功**（中新网 137–720 字、IT之家 332/944 字），无乱码无超时 |
+| ③ | 门槛过滤后播放列表为空怎么办 | `NewsRepository.GetPlaylist`：过滤后为空且缓存非空 → **随机补一条副本**（不污染缓存），摘要末尾加 `NewsRepository.BelowThresholdSuffix`（`" ~"`） | ✅ **实机验证**：把门槛临时调到 0.95 → 画面显示「…移送检察机关审查起诉。 **~**」（`.tmp/s4-fallback-text.png`） |
+| ④ | **分类关键字不显示了** | 查明是「没有命中」而非「分类丢失」：共享频道源抓的是整频道，条目原本只带频道名；而那批关键字（武汉/AI）在当天 9 条（国庆、日本核潜艇、A股…）的标题与正文里一个都没出现。改进两道：① 新增 `KeywordClassifier.Classify`（标题优先、正文兜底，都不命中才回落频道名）；② 提炼提示词要求模型输出 `keyword`（白名单校验防自造分类），模型给的优先 | ✅ 恢复用户 6 个关键字后实测（§13）：缓存 15 条按关键字分布 **武汉 3 / 中国 2 / 美国 2 / 台湾 3 / 国际 2 / AI 3**，画面标签显示「中国」。**未做**「只显示命中关键字的新闻」过滤开关（等用户定） |
+| ⑤ | 有几条新闻图一样；正文没图就不要显示；模式要能设置 | `ImageResolver.DedupeImages` + `ApplyImagesAsync(..., reservedImageUrls)`：同一张图只归一条新闻（按发布时间从新到旧），新抓的图不得复用在挂的图；拿不到独占图＝按「正文没图」处理，**不出图**；每轮先对全量缓存去一次重。设置页把**「显示模式」组提到第一屏**（`playbackMode` 下拉 + `showImages` 开关同源联动），重复控件从「外观 / 播放 / 语音」移除 | ✅ **实测**：修复前 9/9 有图但 **3 组重复**（5 条/4 条/4 条共用同一张模板图）；修复后 **5/9 有图、重复组 0**。设置页截图 `.tmp/set-top2.png`，图文模式真实配图 `.tmp/s3-threshold.png` |
+| ⑥ | 各版本配置与 Key 存储位置 | 实测代码路径整理成表（见 `README.md` 与 `AGENTS.md`）：WPF 与 MAUI(Windows) **完全共用** `%LOCALAPPDATA%\NewsBoard\{config,news}.json` 与 `%APPDATA%\NewsBoard\secret.dat`；MAUI(Android) 用 app 私有目录 + `SecureStorage` | ✅ Windows 两侧已由代码路径确证并实测读写；**Android 精确子路径未实测**（本轮执行时无设备；末次检测已有一台 USB 真机，见 §8 注） |
+
+> **顺带修稳 4 条时间敏感偶发红**（不是本轮功能引入，但属于「不留已知红」）：`Sa3PlaybackEngineTests` / `PlaybackControlTests` 用 100 倍缩放时钟 + 5ms 轮询，机器一忙就会「冲过检查点」。修法：首条摘要写长、检查点往窗口里侧挪（59s→55s、365s→362s）、容差 5s→20s、取基线前 `Task.Delay(250)`。**修后连续 5 次全量 220/220 全绿**（修前 4 次里 3 次红）。
+
+> **本轮门禁**：`dotnet build NewsBoard.slnx` 三头 **0 警告 0 错误**；`dotnet test` **220/220**（本轮新增 49 条测试）。
+> **本轮遗留（待用户决策）**：① 是否新增「只显示命中关键字的新闻」过滤开关；② 联网通道 `RawContent` 是否要补抓原文页（新增抓取）；③ Android 侧数据目录精确路径与装机验证（本轮无设备，末次检测已有 USB 真机 ⇒ 可做，尚未执行）。
 
 
 

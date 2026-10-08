@@ -1,6 +1,8 @@
 # Android 构建环境准备报告（SA5）
 
-日期：2026-10-08　工作目录：`D:\AllData\AIDATA\NewsBoard\.wt\sa5`（分支 `sa5`）
+日期：2026-10-08　工作目录：`D:\AllData\AIDATA\NewsBoard\.wt\sa5`（分支 `sa5`，**已合并进主干**）
+
+> **末次复核见文末 §八**（工具链仍在位、占用有变化、并且**已连接一台 Android 真机**）。
 
 ## 一、结论
 
@@ -220,7 +222,7 @@ D:\Android\Sdk\ndk\27.2.12479018\source.properties
 ## 五、未完成项 / 已知限制
 
 1. **NDK 已装（§3.8），但未跑过 Release/AOT 发布**。plan §7.4 的体积优化配置（`RunAOTCompilation` / `AndroidStripILAfterAOT`）目前只有「NDK 就位」这一层保证，没有端到端证据。
-2. **未装 emulator、未创建 AVD**。plan §7.3 的真机调试走 USB（`dotnet build -t:Run -f net10.0-android`），不需要模拟器。
+2. **未装 emulator、未创建 AVD**。plan §7.3 的真机调试走 USB（`dotnet build -t:Run -f net10.0-android`），不需要模拟器。**§八实测已有一台 USB 真机可用。**
 3. **只装了 `platforms;android-36`**（MAUI 模板默认目标）。若宿主项目把 `TargetFramework` 调成 `net10.0-android35.0` 之类，需要补装对应 platform。
 4. **执行策略**：本机为 `Restricted`，点源脚本前需 `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force`（只影响当前进程，不改机器策略）。
 5. **`src\NewsBoard.Maui` 未由本任务验证**（属另一子代理）。本报告只证明「工具链可用」，不证明该项目的 csproj 正确。
@@ -252,3 +254,30 @@ APK 产物位置：`src\NewsBoard.Maui\bin\<配置>\net10.0-android\*-Signed.apk
 并把 `dotnet`、`jdk-17\bin`、`platform-tools`、`cmdline-tools\latest\bin`、`emulator` 前置到 `PATH`。
 幂等、只作用于当前进程、路径不存在时只告警不中断。文件为 UTF-8 with BOM（本机默认编码为 GBK 时中文注释才不会乱码——
 实测无 BOM 的 `.ps1` 点源后中文全是「鏋勫缓鐜」这类乱码，故必须保留 BOM）。
+
+## 八、末次复核（2026-10-08，主干合并后）
+
+| 项 | 复查结果 |
+|---|---|
+| .NET SDK | `10.0.203`（未变） |
+| workload | `maui-android` 与 `maui-windows` 均已装（`10.0.20/10.0.100`），工作负载版本 `10.0.204.1` |
+| JDK 17 | `D:\Android\jdk-17` 存在，占用 **0.29 GB** |
+| Android SDK | `D:\Android\Sdk` 存在，占用 **2.60 GB** |
+| NDK | `D:\Android\Sdk\ndk\27.2.12479018` 存在 |
+| 三头构建 | `dotnet build NewsBoard.slnx`（WPF + MAUI/Android + MAUI/Windows）**0 警告 0 错误** |
+
+**真机（本次新增）**：
+
+```
+$ adb devices
+List of devices attached
+c6e5ecef        device
+
+$ adb shell getprop ro.product.brand           → Xiaomi
+$ adb shell getprop ro.product.model           → M2011K2C
+$ adb shell getprop ro.build.version.release   → 13      (SDK 33)
+$ adb shell getprop ro.product.cpu.abi         → arm64-v8a
+$ adb shell pm list packages com.newsboard.app → （空 ⇒ 本应用尚未安装）
+```
+
+⇒ 装机类验证现在就具备条件（`dotnet build src\NewsBoard.Maui\NewsBoard.Maui.csproj -f net10.0-android -t:Run`，或 `adb install <apk>`）。**本报告没有执行任何安装或运行操作**，设备状态未被改动。
