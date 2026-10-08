@@ -7,10 +7,27 @@
     <title>新闻看板</title>
     <base href="/" />
     <link rel="stylesheet" href="_content/NewsBoard.Shared/css/app.css" />
+    <style>
+        /* Blazor 运行时起来之前是纯黑屏（app.css 把 body 设成黑底，默认黑字看不见），
+           这里给一个看得见的启动提示；运行时一起来就移除它。 */
+        #boot-hint {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+            color: #8E8E93;
+            font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+            font-size: 20px;
+            z-index: 1;
+        }
+    </style>
 </head>
 
 <body>
-    <div id="app">正在启动…</div>
+    <div id="app"></div>
+    <div id="boot-hint">正在启动…</div>
 
     <div id="blazor-error-ui">
         发生了未处理的错误。
@@ -23,7 +40,16 @@
     <script>
         // autostart="false" 时没人替我们启动 Blazor（Windows 头实测会一直停在「正在启动…」），
         // 这里显式启动；重复调用是幂等的。
-        Blazor.start();
+        function hideBootHint() {
+            var hint = document.getElementById('boot-hint');
+            if (hint) { hint.remove(); }
+        }
+        try {
+            var started = Blazor.start();
+            if (started && started.then) { started.then(hideBootHint, hideBootHint); } else { hideBootHint(); }
+        } catch (e) {
+            hideBootHint();
+        }
     </script>
 </body>
 

@@ -49,6 +49,14 @@ public sealed class PlaybackEngine : IAsyncDisposable
     private volatile bool _wakeRequested;
     private CancellationTokenSource? _speakCts;
 
+    // ---- 首帧闸门：UI 开启后，首条朗读要等画面真画出来（避免「已经在念、画面还在加载」）----
+    /// <summary>首帧最多等这么久（秒）：UI 万一不上报，也不会永远不出声。</summary>
+    private const double FirstFrameMaxWaitSeconds = 8;
+
+    private readonly TaskCompletionSource _firstFrameReady = NewSignal();
+    private volatile bool _firstFrameGateArmed;
+    private volatile bool _firstFrameWaited;
+
     // ---- 一轮（SHOW 窗口）内的时间账 ----
     private DateTimeOffset _windowStartAt;
     private TimeSpan _windowLength;
@@ -92,6 +100,15 @@ public sealed class PlaybackEngine : IAsyncDisposable
 
     /// <summary>阶段、当前条目或索引变化时触发。订阅方自行切回 UI 线程。</summary>
     public event Action? StateChanged;
+
+    /// <summary>
+    /// 由播放页在 <see cref="StartAsync"/> 之前调用：首条朗读必须等首帧渲染完成。
+    /// 只有真正渲染画面的 UI 才需要开启它；无 UI 的调用方（如单测）不开，行为与从前一致。
+    /// </summary>
+    public void ArmFirstFrameGate() => _firstFrameGateArmed = true;
+
+    /// <summary>播放页首帧（且首条内容已在画面上）渲染完成后调用，放行首条朗读。</summary>
+    public void MarkFirstFrameRendered() => _firstFrameReady.TrySetResult();
 
     /// <summary>启动：常亮 → 全屏 → 退出黑屏 → 探测语音 → 进入 SHOW 循环。</summary>
     public async Task StartAsync()
@@ -328,6 +345,34 @@ public sealed class PlaybackEngine : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// 首条朗读前的首帧闸门：等 UI 报告「首帧已渲染」。
+    /// 只等**第一次**，且有上限（UI 万一不上报也不能永远不出声）；期间可被停止/切条/窗口到点打断。
+    /// </summary>
+    private async Task WaitForFirstFrameAsync(CancellationToken token)
+    {
+        if (!_firstFrameGateArmed || _firstFrameWaited)
+        {
+            return;
+        }
+
+        _firstFrameWaited = true;
+        if (_firstFrameReady.Task.IsCompleted)
+        {
+            return;
+        }
+
+        var deadline = _clock.Now + TimeSpan.FromSeconds(FirstFrameMaxWaitSeconds);
+        while (!_firstFrameReady.Task.IsCompleted
+               && _clock.Now < deadline
+               && !Stopped(token)
+               && !_advanceRequested
+               && !_windowEnded)
+        {
+            await _clock.DelayAsync(TimeSpan.FromMilliseconds(50), token).ConfigureAwait(false);
+        }
+    }
+
     private void ReloadPlaylist()
     {
         var playlist = _repository.GetPlaylist(_config.Current);
@@ -480,6 +525,13 @@ public sealed class PlaybackEngine : IAsyncDisposable
         {
             // §5.2：切到该条 → 静默 T_lead → 朗读（朗读完成即该条结束）
             await DelayUntilAsync(_clock.Now + TimeSpan.FromSeconds(Math.Max(0, config.SpeechLeadSeconds)), limit, token).ConfigureAwait(false);
+            if (Stopped(token) || _advanceRequested || _windowEnded)
+            {
+                return _clock.Now - before;
+            }
+
+            // 首条：画面还没画出来就先出声，用户会以为「还在加载」（实机实测：朗读比首帧早 ~1.9s）
+            await WaitForFirstFrameAsync(token).ConfigureAwait(false);
             if (Stopped(token) || _advanceRequested || _windowEnded)
             {
                 return _clock.Now - before;
