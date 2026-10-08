@@ -2,6 +2,7 @@
 @inject ConfigStore Store
 @inject ISpeechService Speech
 @inject IScreenController Screen
+@inject IServiceProvider Services
 
 <link rel="stylesheet" href="_content/NewsBoard.Shared/css/settings.css" />
 
@@ -122,7 +123,16 @@
             <div class="row">
                 <label for="rssTemplate">RSS 源模板</label>
                 <input id="rssTemplate" type="text" @bind="_edit.RssTemplate" />
-                <span class="desc">{q} 会被替换成关键字。</span>
+                <span class="desc">含 {q} ＝按关键字各抓一次（搜索型源）；不含 ＝共享频道源，只抓一次。</span>
+            </div>
+
+            <div class="row column">
+                <label for="rssFallback">RSS 备用源</label>
+                <textarea id="rssFallback" rows="4" spellcheck="false" placeholder="每行一个 URL，例如：&#10;http://www.people.com.cn/rss/politics.xml&#10;https://www.ithome.com/rss/"
+                          @bind="_rssFallbackText" @bind:event="oninput"></textarea>
+                <span class="desc">
+                    主源抓不到时按顺序依次尝试（每行一个 URL，保存时自动去空行、去重、去首尾空格）。当前 @FallbackCount 条。
+                </span>
             </div>
 
             <div class="row">
@@ -372,9 +382,19 @@
 
             <div class="row">
                 <label for="autoStart">开机自启</label>
-                <input id="autoStart" type="checkbox" @bind="_edit.AutoStart" />
-                <span class="desc">Android 走前台服务 + 通知（首次需在系统里允许自启动）；Windows 写注册表 Run 项。</span>
+                <input id="autoStart" type="checkbox" checked="@_autoStartEnabled"
+                       disabled="@(!_autoStartSupported)" @onchange="ToggleAutoStartAsync" />
+                <button type="button" @onclick="OpenAutoStartSettingsAsync" disabled="@(_autoStart is null)">打开系统设置</button>
+                <span class="chip @AutoStartChipClass()">@AutoStartStateText()</span>
             </div>
+            <p class="desc">
+                开关读的是系统真实状态（宿主 IAutoStart）：拨动即调用平台接口并把同一值写入 <code>AutoStart</code> 后保存；
+                Android 还可能需要在系统「自启动管理」里额外放行。
+            </p>
+            @if (_autoStartNotice is not null)
+            {
+                <p class="warn-box">@_autoStartNotice</p>
+            }
 
             <div class="row">
                 <label for="wifiOnly">仅 WiFi 抓取</label>
@@ -423,21 +443,186 @@
     private bool _loaded;
     private string _apiKeyInput = "";
     private string _newKeyword = "";
+    private string _rssFallbackText = "";
     private bool _hasKey;
     private bool? _speechAvailable;
     private bool _speechChecking;
     private bool _speaking;
     private bool _blackoutTesting;
+    private IAutoStart? _autoStart;
+    private bool _autoStartSupported;
+    private bool _autoStartEnabled;
+    private string? _autoStartNotice;
     private string? _message;
     private string? _error;
+
+    private int FallbackCount => ParseFallbackLines(_rssFallbackText).Count;
 
     protected override async Task OnInitializedAsync()
     {
         await Store.LoadAsync();
         _edit = Store.Current.Clone();
+        DetachLists(_edit);
+        _rssFallbackText = string.Join(Environment.NewLine, _edit.RssFallbackTemplates);
         _hasKey = !string.IsNullOrWhiteSpace(await Store.GetApiKeyAsync());
         await CheckSpeechAsync();
+        await InitAutoStartAsync();
         _loaded = true;
+    }
+
+    /// <summary>AppConfig.Clone 只深拷贝关键字列表；这里把备用源列表也换成独立副本，避免取消编辑时污染 Current。</summary>
+    private static void DetachLists(AppConfig config)
+        => config.RssFallbackTemplates = [.. config.RssFallbackTemplates];
+
+    /// <summary>多行文本 → 备用源列表：逐行去空、去首尾空格、去重。</summary>
+    private static List<string> ParseFallbackLines(string? text)
+        => (text ?? "")
+            .Replace("\r\n", "\n")
+            .Replace('\r', '\n')
+            .Split('\n')
+            .Select(line => line.Trim())
+            .Where(line => line.Length > 0)
+            .Distinct()
+            .ToList();
+
+    private void ApplyEditsFromUi() => _edit.RssFallbackTemplates = ParseFallbackLines(_rssFallbackText);
+
+    private async Task InitAutoStartAsync()
+    {
+        try
+        {
+            _autoStart = Services.GetService(typeof(IAutoStart)) as IAutoStart;
+        }
+        catch (Exception ex)
+        {
+            _autoStart = null;
+            _autoStartNotice = $"读取开机自启服务失败，开关已禁用：{ex.Message}";
+            return;
+        }
+
+        if (_autoStart is null)
+        {
+            _autoStartSupported = false;
+            _autoStartNotice = "宿主未注册 IAutoStart，视为本平台不支持开机自启，开关已禁用（不影响其它设置）。";
+            return;
+        }
+
+        try
+        {
+            _autoStartSupported = _autoStart.IsSupported;
+        }
+        catch (Exception ex)
+        {
+            _autoStartSupported = false;
+            _autoStartNotice = $"开机自启能力检测失败，开关已禁用：{ex.Message}";
+            return;
+        }
+
+        if (!_autoStartSupported)
+        {
+            _autoStartNotice = "当前平台不支持开机自启，开关已禁用；可点「打开系统设置」到系统里手动配置。";
+            return;
+        }
+
+        await RefreshAutoStartStateAsync();
+    }
+
+    private async Task RefreshAutoStartStateAsync()
+    {
+        if (_autoStart is null || !_autoStartSupported)
+        {
+            return;
+        }
+
+        try
+        {
+            _autoStartEnabled = await _autoStart.IsEnabledAsync();
+        }
+        catch (Exception ex)
+        {
+            _autoStartNotice = $"读取开机自启状态失败：{ex.Message}";
+        }
+    }
+
+    private string AutoStartStateText()
+    {
+        if (_autoStart is null)
+        {
+            return "宿主未提供，不支持";
+        }
+
+        if (!_autoStartSupported)
+        {
+            return "本平台不支持";
+        }
+
+        return _autoStartEnabled ? "系统已启用" : "系统未启用";
+    }
+
+    private string AutoStartChipClass()
+        => _autoStartSupported && _autoStartEnabled ? "ok" : "warn";
+
+    private async Task ToggleAutoStartAsync(ChangeEventArgs args)
+    {
+        if (_autoStart is null || !_autoStartSupported)
+        {
+            return;
+        }
+
+        var want = args.Value is bool value && value;
+        _message = null;
+        _error = null;
+        _autoStartNotice = null;
+        try
+        {
+            await _autoStart.SetEnabledAsync(want);
+            _edit.AutoStart = want;
+            await SaveConfigAsync();
+            await RefreshAutoStartStateAsync();
+            if (_autoStartEnabled != want)
+            {
+                _autoStartNotice = want
+                    ? "系统未接受开机自启（可能被安全软件或系统策略拦截），请点「打开系统设置」手动放行。"
+                    : "系统仍显示已启用开机自启，请点「打开系统设置」手动关闭。";
+            }
+            else
+            {
+                _message = want ? "已开启开机自启并保存" : "已关闭开机自启并保存";
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"开机自启设置失败：{ex.Message}";
+            await RefreshAutoStartStateAsync();
+        }
+    }
+
+    private async Task OpenAutoStartSettingsAsync()
+    {
+        _message = null;
+        _error = null;
+        _autoStartNotice = null;
+        if (_autoStart is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (await _autoStart.OpenSystemSettingsAsync())
+            {
+                _message = "已打开系统自启动设置页，请在那里放行本应用。";
+            }
+            else
+            {
+                _autoStartNotice = ManualAutoStartHint;
+            }
+        }
+        catch (Exception ex)
+        {
+            _autoStartNotice = ManualAutoStartHint;
+            _error = $"打开系统设置失败：{ex.Message}";
+        }
     }
 
     private string SpeechStateText()
@@ -613,14 +798,21 @@
         }
     }
 
+    private const string ManualAutoStartHint =
+        "系统没有可跳转的自启动设置页，请手动放行：Windows：任务管理器 →「启动」选项卡；" +
+        "Android：系统设置 → 应用管理 → 本应用 →「自启动管理」（各厂商名称略有差异）。";
+
     private async Task SaveConfigAsync()
     {
         _message = null;
         _error = null;
         try
         {
+            ApplyEditsFromUi();
             await Store.SaveAsync(_edit);
             _edit = Store.Current.Clone();
+            DetachLists(_edit);
+            _rssFallbackText = string.Join(Environment.NewLine, _edit.RssFallbackTemplates);
             _hasKey = !string.IsNullOrWhiteSpace(await Store.GetApiKeyAsync());
             _message = "已保存";
         }
@@ -633,6 +825,8 @@
     private void Cancel()
     {
         _edit = Store.Current.Clone();
+        DetachLists(_edit);
+        _rssFallbackText = string.Join(Environment.NewLine, _edit.RssFallbackTemplates);
         _apiKeyInput = "";
         _newKeyword = "";
         _message = "已放弃未保存的修改";
@@ -642,6 +836,8 @@
     private void RestoreDefaults()
     {
         _edit = new AppConfig();
+        DetachLists(_edit);
+        _rssFallbackText = string.Join(Environment.NewLine, _edit.RssFallbackTemplates);
         _newKeyword = "";
         _message = "已载入默认值（尚未保存）";
         _error = null;
