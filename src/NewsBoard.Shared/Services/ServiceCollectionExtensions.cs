@@ -30,19 +30,21 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<INewsSource, WebSearchNewsSource>();
 
         services.AddSingleton<NewsFetchCoordinator>();
-
+        services.AddSingleton<NewsFetchScheduler>();
         services.AddSingleton<PlaybackEngine>();
 
         return services;
     }
 
     /// <summary>
-    /// 启动期一次性加载：配置（含从 <see cref="ISecretStore"/> 取回 API Key）与新闻缓存。
+    /// 启动期一次性加载：配置（含从 <see cref="ISecretStore"/> 取回 API Key）与新闻缓存，
+    /// 然后拉起定时抓取调度（启动即抓一次，之后按「抓取间隔」循环）。
     /// 不加载则播放列表为空。
     /// </summary>
     public static async Task InitializeNewsBoardAsync(this IServiceProvider services)
     {
         await services.GetRequiredService<ConfigStore>().LoadAsync();
         await services.GetRequiredService<NewsRepository>().LoadAsync();
+        await services.GetRequiredService<NewsFetchScheduler>().StartAsync();
     }
 }

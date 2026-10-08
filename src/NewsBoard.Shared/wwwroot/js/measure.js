@@ -7,6 +7,14 @@
     return document.getElementById(id);
   }
 
+  // 允许调用方传元素本身，也允许传元素 id（Blazor 侧拿不到元素，只能传 id）
+  function resolve(target) {
+    if (!target) {
+      return null;
+    }
+    return typeof target === 'string' ? byId(target) : target;
+  }
+
   function stateOf(el) {
     let s = states.get(el);
     if (!s) {
@@ -73,7 +81,7 @@
   window.newsBoard = {
     /** 溢出测量：{ scrollHeight, clientHeight, height, overflow }（overflow 留 5% 余量） */
     measure: function (id) {
-      const el = byId(id);
+      const el = resolve(id);
       if (!el) {
         return null;
       }
@@ -82,7 +90,8 @@
     },
 
     /** 从当前位置匀速滚到底：durationMs 内滚完剩余溢出高度 */
-    startScroll: function (el, durationMs) {
+    startScroll: function (target, durationMs) {
+      const el = resolve(target);
       if (!el) {
         return false;
       }
@@ -93,7 +102,8 @@
     },
 
     /** 朗读结束收尾：ms 内加速滚完剩余部分 */
-    finishScroll: function (el, ms) {
+    finishScroll: function (target, ms) {
+      const el = resolve(target);
       if (!el) {
         return false;
       }
@@ -103,7 +113,8 @@
     },
 
     /** 立即停止滚动动画 */
-    stopScroll: function (el) {
+    stopScroll: function (target) {
+      const el = resolve(target);
       if (!el) {
         return false;
       }
