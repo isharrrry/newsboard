@@ -211,6 +211,18 @@ public class Sa1NewsFetchCoordinatorTests
         {
             if (request.Url.Contains("/chat/completions", StringComparison.Ordinal)) return Default(config)(request);
             if (request.Url.Contains(Sa1Data.RssHost, StringComparison.Ordinal)) return Default(config)(request);
+
+            // 图片地址要真的返回图片：ImageResolver 现在会校验候选地址是否真能当图片加载
+            if (request.Url.Contains("/img/", StringComparison.Ordinal))
+            {
+                var image = new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(new byte[4096]),
+                };
+                image.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/jpeg");
+                return image;
+            }
+
             return FakeHttp.Ok(
                 """<html><head><meta property="og:image" content="/img/cover.jpg"></head></html>""",
                 "text/html");
