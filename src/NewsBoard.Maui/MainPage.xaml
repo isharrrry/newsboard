@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:shared="clr-namespace:NewsBoard.Shared.Components;assembly=NewsBoard.Shared"
+             x:Class="NewsBoard.Maui.MainPage"
+             BackgroundColor="#000000">
+    <Grid>
+        <BlazorWebView x:Name="WebView"
+                       HostPage="wwwroot/index.html"
+                       IsVisible="False">
+            <BlazorWebView.RootComponents>
+                <RootComponent Selector="#app" ComponentType="{x:Type shared:Routes}" />
+            </BlazorWebView.RootComponents>
+        </BlazorWebView>
+
+        <Label x:Name="LoadingLabel"
+               Text="正在启动…"
+               TextColor="#00D4AA"
+               FontSize="24"
+               HorizontalOptions="Center"
+               VerticalOptions="Center" />
+    </Grid>
+</ContentPage>
