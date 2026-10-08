@@ -46,8 +46,8 @@ Android 工具链在 **`D:\Android`**：JDK 17 于 `D:\Android\jdk-17`、Android
 
 ## 冻结契约（不得修改签名/字段名）
 
-- `NewsBoard.Shared.Models.NewsItem` / `RawNewsItem`
-- `NewsBoard.Shared.Services.AppConfig`（§4 全部配置项）与全部枚举
+- `NewsBoard.Shared.Models.NewsItem` / `RawNewsItem`（另有 `NewsItem.Importance`：`double?`，0–1，null = 未评分；`NewsItem.RawContent`：抓到的原始内容；`RawNewsItem.Importance` / `Description`）
+- `NewsBoard.Shared.Services.AppConfig`（§4 全部配置项）与全部枚举，另含：`SummaryLanguage`（`SummaryLanguageOption`：SimplifiedChinese 默认 / TraditionalChinese / English；扩展 `SummaryLanguageText.PromptRule()` 给提示词硬约束、`DisplayName()` 给界面文案）、`ClockFontSizeSp`（默认 32）、`ClockFontFamily`（默认 ""）、`ImportanceThreshold`（默认 0.7）、`RetentionDays`（默认 3）；`PlayOrder` 默认 **Random**
 - `NewsBoard.Shared.Services.Abstractions`：`IScreenController`、`ISpeechService`、`ISecretStore`、`IAutoStart`、`ILinkOpener`（用系统浏览器打开原文）、`INewsSource`、`IConfigProvider`、`INewsRepository`、`IClock`（含 `SystemClock`）
 - `PlaybackEngine` 的手动控制 API：`NextAsync()` / `PreviousAsync()` / `InterruptAsync()`（打断本轮 → 立即灭屏等待「黑屏时长」秒 → 下一轮；即使 `BlackoutCycleEnabled=false` 也会灭一次），方向切换按列表循环回绕；`WakeAsync()`（灭屏期间点一下屏幕 → 立刻回到显示并从当前条重新起算窗口；显示期间调用无副作用，不切条也不重算窗口）
 - `NewsBoard.Shared.Services.ServiceCollectionExtensions.AddNewsBoardCore()` / `InitializeNewsBoardAsync()`：宿主统一装配入口（先注册平台实现，再调用它；启动期必须 await `InitializeNewsBoardAsync()`，否则播放列表为空）
@@ -76,6 +76,13 @@ Android 工具链在 **`D:\Android`**：JDK 17 于 `D:\Android\jdk-17`、Android
 - **MAUI 的 `wwwroot/index.html` 必须显式 `Blazor.start()`**：`blazor.webview.js` 带 `autostart="false"` 时，Windows 头不会替我们启动，页面会一直停在「正在启动…」（实测；`Blazor.start()` 重复调用是幂等的）。
 - **MAUI 宿主必须在启动期调用 `InitializeNewsBoardAsync()`**（现于 `MauiProgram.CreateMauiApp()` 末尾 fire-and-forget）；不调用则配置（含 API Key）不加载、抓取调度器不启动 —— 症状是画面永远停在「正在获取新闻…」且进程零网络连接（实测踩过）。`Display.razor` 起播前也会 `await Services.InitializeNewsBoardAsync()` 兜底（幂等）。
 - 摘要默认 **70 字**、卡片默认**不显示标题**（`AppConfig.ShowTitle=false`）；两条通道（RSS 提炼 / 联网搜索）都要过 `SummaryText.Normalize` 本地二次校验（上限 1.2 倍 → 截到最后一个句号），因为模型实测会超字数。实测（2026-10-08，默认 70）：RSS 提炼 53–66 字、联网搜索 72–84 字。
+- **摘要语言**：两条通道的提示词都会写入 `config.SummaryLanguage.PromptRule()`。**实测（2026-10-08）**：加这条之前，联网通道检索港台源时摘要会夹带繁体（9 篇里 6 篇命中 1–3 个繁体字）；加之后同样关键字复测 **9 篇全 0**（判定用「只含繁体专有字」的字集，简繁同形字如 路/新/果/大 必须排除，否则误报）。
+- **重要度筛选（模型打分 + 本地均衡）**：两条通道的提示词都要求模型给出 `importance`（0.00–1.00，**相对最近三天这批新闻**、要拉开差距：重大 0.80–1.00 / 例行 0.20–0.50）；`ImportanceScoring.Read()` 容错解析（数字/数字字符串、越界夹取、非法→null）；`ImportanceScoring.Balance()` 在**整批退化**（极差 < 0.1 或 ≥80% 堆在 ≥0.85/≤0.15）且 ≥3 条时按秩在 [0.15, 0.95] 展开；`NewsRepository.GetPlaylist` **先按 `ImportanceThreshold` 过滤再排序**（`Importance` 为 null 的旧缓存保留，等于门槛也保留），随机顺序缓存键包含门槛（改门槛立即重排）。
+  实测（2026-10-08，1 关键字 RSS + 2 关键字联网）：缓存 16 条分布 `0.2-0.4:4 / 0.4-0.6:5 / 0.6-0.8:4 / 0.8-1.0:3`，过 0.7 门槛显示 6 条 —— 既不堆高分也不堆低分。
+  **注意**：门槛过滤后播放列表可能为空（「正在获取新闻…」会一直显示），这是配置语义而非卡死。
+- **`RawContent`**：RSS 通道会把 `RawNewsItem.Description` 截断到 2000 字存进缓存（便于回看/二次提炼）；**联网通道拿不到正文**，该字段恒为 null。
+- **图文模式的配图来源（实测，2026-10-08）**：中新网、人民网文章页**都没有 `og:image`/`twitter:image`**，RSS 也没有 `enclosure`/`media:*` ⇒ 只看 meta 会永远取不到图。`ImageResolver` 现为四级：og:image → twitter:image → `link[rel=image_src]` → **正文首图**（优先正文容器内、`<p>` 之后、跳过 logo/图标/占位图/早于文章日期 60 天以上的模板素材），且**逐个候选发 Range 请求校验真的返回 `image/*`**（中新网图床 `i2.chinanews.com.cn` 防盗链，直接取回的是 html）。实测 8 篇真实文章：修前 8/8 命中但 4 篇拿到同一张模板图、1 篇页脚图；修后 7/8 命中且**各不相同**的真实配图。
+  图文模式下每轮还会为「缓存里已存在但没图」的旧条目补抓配图（每轮上限 8 条，`NewsFetchCoordinator.MaxImageBackfill`）。
 - **灭屏期间点一下屏幕即唤醒**：`.blackout` 遮罩带 `@onclick="WakeAsync"`（`PlaybackEngine.WakeAsync()` → 立刻退出灭屏、回到显示、从当前条重新起算窗口）。灭屏期间控制条是隐藏的（`.board-controls--hidden`），所以点击一定落在遮罩上；实测亮度 58.4 → 打断 0 → 点一下 58.4。
 - MAUI(Windows) 的窗口标题来自 `ApplicationTitle`（「新闻看板」）；播放页自身不再输出任何标题文字，关键字标签只在页面顶部显示**一条**（`ShowKeywordLabel` 控制）。
 - **设置页排版（iOS 分组列表）**：`.settings-page` 自己就是滚动容器（`height:100%` + `overflow-y:auto`；app.css 把 `html/body` 设成 `overflow:hidden`，不能指望页面级滚动）；顶部栏与底部操作条用 `position:fixed` 贴真实视口（原先 `sticky` 会浮在页面中间）。
