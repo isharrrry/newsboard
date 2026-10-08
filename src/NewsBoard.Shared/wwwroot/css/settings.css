@@ -113,6 +113,41 @@ input[type="number"] {
     flex: 0 0 auto;
 }
 
+textarea {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    margin: 8px 0 4px;
+    background: #0F1216;
+    color: #ECECEC;
+    border: 1px solid #38404D;
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: 15px;
+    line-height: 1.5;
+    resize: vertical;
+}
+
+textarea::placeholder {
+    color: #5E6878;
+}
+
+textarea:focus {
+    outline: none;
+    border-color: #00D4AA;
+}
+
+.row .desc code {
+    background: #0F1216;
+    border: 1px solid #2A2F38;
+    border-radius: 4px;
+    padding: 0 5px;
+    font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: 13px;
+    color: #C7CED9;
+}
+
 input[type="color"] {
     width: 56px;
     height: 32px;
@@ -126,6 +161,10 @@ input[type="checkbox"] {
     width: 22px;
     height: 22px;
     accent-color: #00D4AA;
+}
+
+input[type="checkbox"]:disabled {
+    opacity: 0.5;
 }
 
 button {

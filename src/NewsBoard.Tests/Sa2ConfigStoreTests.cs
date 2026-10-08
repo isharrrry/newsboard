@@ -35,7 +35,7 @@ public sealed class Sa2ConfigStoreTests : IDisposable
         var store = NewStore();
         await store.LoadAsync();
 
-        Assert.Equal(NewsFetchMode.RssThenSummarize, store.Current.FetchMode);
+        Assert.Equal(NewsFetchMode.Auto, store.Current.FetchMode);
         Assert.Equal("https://api.deepseek.com", store.Current.BaseUrl);
         Assert.Equal("https://api.deepseek.com/anthropic", store.Current.BaseUrlSearch);
         Assert.Equal(3, store.Current.SearchMaxUses);
@@ -43,6 +43,10 @@ public sealed class Sa2ConfigStoreTests : IDisposable
         Assert.Equal(5, store.Current.FetchIntervalMinutes);
         Assert.Equal(50, store.Current.SummaryMaxChars);
         Assert.Equal(10, store.Current.AiMinIntervalMinutes);
+        Assert.Equal("https://www.chinanews.com.cn/rss/scroll-news.xml", store.Current.RssTemplate);
+        Assert.Equal(
+            new[] { "http://www.people.com.cn/rss/politics.xml", "https://www.ithome.com/rss/" },
+            store.Current.RssFallbackTemplates);
         Assert.True(store.Current.OnlyTodayNews);
         Assert.Null(store.Current.ApiKey);
 
@@ -107,6 +111,7 @@ public sealed class Sa2ConfigStoreTests : IDisposable
         config.SummaryMaxChars = 60;
         config.AiMinIntervalMinutes = 20;
         config.RssTemplate = "https://example.invalid/rss?q={q}";
+        config.RssFallbackTemplates = ["https://fallback.invalid/a.xml", "https://fallback.invalid/b.xml"];
         config.OnlyTodayNews = false;
         config.BackgroundColor = "#112233";
         config.ForegroundColor = "#F0F0F0";
@@ -163,6 +168,9 @@ public sealed class Sa2ConfigStoreTests : IDisposable
         Assert.Equal(60, c.SummaryMaxChars);
         Assert.Equal(20, c.AiMinIntervalMinutes);
         Assert.Equal("https://example.invalid/rss?q={q}", c.RssTemplate);
+        Assert.Equal(
+            new[] { "https://fallback.invalid/a.xml", "https://fallback.invalid/b.xml" },
+            c.RssFallbackTemplates);
         Assert.False(c.OnlyTodayNews);
         Assert.Equal("#112233", c.BackgroundColor);
         Assert.Equal("#F0F0F0", c.ForegroundColor);
@@ -305,7 +313,7 @@ public sealed class Sa2ConfigStoreTests : IDisposable
         Assert.True(c.ShowSource);
         Assert.Equal(1.9, c.LineHeight, 6);
 
-        Assert.Equal(NewsFetchMode.RssThenSummarize, c.FetchMode);
+        Assert.Equal(NewsFetchMode.Auto, c.FetchMode);
         Assert.Equal("deepseek-chat", c.Model);
         Assert.Equal(3, c.SearchMaxUses);
         Assert.Equal(5, c.FetchIntervalMinutes);
@@ -315,6 +323,12 @@ public sealed class Sa2ConfigStoreTests : IDisposable
         Assert.Equal(300, c.BlackoutDurationSeconds);
         Assert.True(c.AutoStart);
         Assert.True(c.AndroidShowStatusBar);
+
+        // 旧 JSON 里没有的新字段（备用 RSS 源）必须补成默认值，而不是空列表。
+        Assert.Equal("https://www.chinanews.com.cn/rss/scroll-news.xml", c.RssTemplate);
+        Assert.Equal(
+            new[] { "http://www.people.com.cn/rss/politics.xml", "https://www.ithome.com/rss/" },
+            c.RssFallbackTemplates);
     }
 
     [Fact]
@@ -429,6 +443,59 @@ public sealed class Sa2ConfigStoreTests : IDisposable
         var reloaded = NewStore();
         await reloaded.LoadAsync();
         Assert.Equal(new[] { "武汉", "AI" }, reloaded.Current.Keywords);
+    }
+
+    [Fact]
+    public async Task SaveAsync_NormalizesFallbackTemplates_WithoutAliasingCallersList()
+    {
+        var store = NewStore();
+        await store.LoadAsync();
+
+        var edit = store.Current.Clone();
+        var messy = new List<string> { " https://a.invalid/rss ", "", "https://b.invalid/rss", "https://a.invalid/rss", "   " };
+        edit.RssFallbackTemplates = messy;
+        await store.SaveAsync(edit);
+
+        Assert.Equal(new[] { "https://a.invalid/rss", "https://b.invalid/rss" }, store.Current.RssFallbackTemplates);
+        Assert.Equal(5, messy.Count);
+        Assert.NotSame(messy, store.Current.RssFallbackTemplates);
+
+        var reloaded = NewStore();
+        await reloaded.LoadAsync();
+        Assert.Equal(new[] { "https://a.invalid/rss", "https://b.invalid/rss" }, reloaded.Current.RssFallbackTemplates);
+
+        var json = File.ReadAllText(ConfigFile);
+        Assert.Contains("RssFallbackTemplates", json);
+    }
+
+    [Fact]
+    public async Task LoadAsync_FallbackTemplatesEmptyArray_StaysEmpty()
+    {
+        Directory.CreateDirectory(_dir);
+        await File.WriteAllTextAsync(ConfigFile, """{ "RssFallbackTemplates": [] }""");
+
+        var store = NewStore();
+        await store.LoadAsync();
+        Assert.Empty(store.Current.RssFallbackTemplates);
+    }
+
+    [Fact]
+    public async Task LoadAsync_FallbackTemplatesNullOrWrongType_KeepsDefaults()
+    {
+        Directory.CreateDirectory(_dir);
+        await File.WriteAllTextAsync(ConfigFile, """{ "RssFallbackTemplates": null }""");
+        var withNull = NewStore();
+        await withNull.LoadAsync();
+        Assert.Equal(2, withNull.Current.RssFallbackTemplates.Count);
+
+        var dir2 = _dir + "-bad";
+        Directory.CreateDirectory(dir2);
+        await File.WriteAllTextAsync(Path.Combine(dir2, "config.json"), """{ "RssFallbackTemplates": "不是数组" }""");
+        var wrongType = NewStore(null, dir2);
+        await wrongType.LoadAsync();
+        Assert.Equal(2, wrongType.Current.RssFallbackTemplates.Count);
+
+        Directory.Delete(dir2, true);
     }
 
     private sealed class MemorySecretStore : ISecretStore

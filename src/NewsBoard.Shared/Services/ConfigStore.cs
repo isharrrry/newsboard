@@ -74,6 +74,7 @@ public sealed class ConfigStore : IConfigProvider
         {
             snapshot = config.Clone();
             snapshot.NormalizeKeywords();
+            snapshot.RssFallbackTemplates = NormalizeTemplates(snapshot.RssFallbackTemplates);
             snapshot.ApiKey = string.IsNullOrWhiteSpace(apiKey) ? Current.ApiKey : apiKey.Trim();
             WriteToDisk(snapshot);
         }
@@ -221,8 +222,19 @@ public sealed class ConfigStore : IConfigProvider
         }
 
         config.NormalizeKeywords();
+        config.RssFallbackTemplates = NormalizeTemplates(config.RssFallbackTemplates);
         return config;
     }
+
+    /// <summary>
+    /// 备用 RSS 源规整：去空、去首尾空格、去重，并换用新列表，避免与调用方（或 Current）共享引用。
+    /// </summary>
+    private static List<string> NormalizeTemplates(List<string>? source)
+        => (source ?? [])
+            .Select(t => t?.Trim() ?? "")
+            .Where(t => t.Length > 0)
+            .Distinct()
+            .ToList();
 
     private static JsonNode? FindIgnoreCase(JsonObject obj, string name)
     {
