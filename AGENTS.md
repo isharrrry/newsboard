@@ -36,7 +36,7 @@ dotnet build NewsBoard.slnx -v q --nologo
 
 - `NewsBoard.Shared.Models.NewsItem` / `RawNewsItem`
 - `NewsBoard.Shared.Services.AppConfig`（§4 全部配置项）与全部枚举
-- `NewsBoard.Shared.Services.Abstractions`：`IScreenController`、`ISpeechService`、`ISecretStore`、`INewsSource`、`IClock`（含 `SystemClock`）
+- `NewsBoard.Shared.Services.Abstractions`：`IScreenController`、`ISpeechService`、`ISecretStore`、`INewsSource`、`IConfigProvider`、`INewsRepository`、`IClock`（含 `SystemClock`）
 - `_Imports.razor` 的 using 集合、`Components/Routes.razor` 作为 `BlazorWebView.RootComponent`
 
 需要新增接口/字段时：在自己的文件里加 `partial` 或在实现内私有化，**不要**动上述文件。
