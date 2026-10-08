@@ -29,6 +29,9 @@ public sealed class NewsFetchCoordinator
     private const string WebSearchChannel = "模型联网搜索";
     private const int MaxConcurrency = 3;
 
+    /// <summary>图文模式下每轮最多为多少条「缓存里还缺图」的旧条目补抓配图。</summary>
+    private const int MaxImageBackfill = 8;
+
     private readonly Dictionary<string, INewsSource> _sources = new(StringComparer.Ordinal);
     private readonly NewsSummarizer _summarizer;
     private readonly ImageResolver _imageResolver;
@@ -175,7 +178,18 @@ public sealed class NewsFetchCoordinator
             _repository.AddOrUpdateRange(newItems);
             await _repository.SaveAsync(cancellationToken).ConfigureAwait(false);
 
-            await _imageResolver.ApplyImagesAsync(newItems, config, cancellationToken).ConfigureAwait(false);
+            await _imageResolver.ApplyImagesAsync(WithCachedMissingImages(newItems, config), config, cancellationToken).ConfigureAwait(false);
+            await _repository.SaveAsync(cancellationToken).ConfigureAwait(false);
+        }
+        else if (config.PlaybackMode == PlaybackMode.TextAndImage)
+        {
+            // 本轮没新条目：也把缓存里还缺图的旧条目补上（切到图文模式后旧条目同样要出图）
+            var backfill = WithCachedMissingImages([], config);
+            if (backfill.Count > 0)
+            {
+                await _imageResolver.ApplyImagesAsync(backfill, config, cancellationToken).ConfigureAwait(false);
+            }
+
             await _repository.SaveAsync(cancellationToken).ConfigureAwait(false);
         }
         else
@@ -205,6 +219,31 @@ public sealed class NewsFetchCoordinator
 
     private INewsSource? FindSource(string name)
         => _sources.TryGetValue(name, out var source) ? source : null;
+
+    /// <summary>本轮新条目 + 缓存里还缺图的旧条目（每次最多 <see cref="MaxImageBackfill"/> 条）。</summary>
+    private List<NewsItem> WithCachedMissingImages(IReadOnlyList<NewsItem> newItems, AppConfig config)
+    {
+        if (config.PlaybackMode != PlaybackMode.TextAndImage)
+        {
+            return [.. newItems];
+        }
+
+        var result = new List<NewsItem>(newItems);
+        var seen = new HashSet<string>(newItems.Select(i => i.Id), StringComparer.Ordinal);
+        var limit = newItems.Count + MaxImageBackfill;
+
+        foreach (var item in _repository.GetPlaylist(config))
+        {
+            if (result.Count >= limit) break;
+            if (!string.IsNullOrWhiteSpace(item.ImageUrl)) continue;
+            if (string.IsNullOrWhiteSpace(item.Url)) continue;
+            if (!seen.Add(item.Id)) continue;
+
+            result.Add(item);
+        }
+
+        return result;
+    }
 
     private static string ChannelOf(NewsFetchMode mode) => mode switch
     {
