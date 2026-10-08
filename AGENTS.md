@@ -14,11 +14,18 @@ dotnet test src\NewsBoard.Tests\NewsBoard.Tests.csproj --nologo
 # WPF 宿主（Windows 桌面，同时也是调试 Blazor 层最快的途径）
 dotnet run --project src\NewsBoard.Wpf
 
-# 解决方案整体（不含 MAUI，MAUI 需 Android workload）
+# 解决方案整体（含 MAUI/Android；Android 部分必须先点源环境脚本，见下）
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force; . .\scripts\android-env.ps1
 dotnet build NewsBoard.slnx -v q --nologo
+
+# 单独构建 Android 宿主（产出 APK 于 bin\Debug\net10.0-android\*-Signed.apk）
+dotnet build src\NewsBoard.Maui\NewsBoard.Maui.csproj -f net10.0-android -v q --nologo
 ```
 
-当前机器：`.NET SDK 10.0.203`、runtime `10.0.7`；`maui-android` workload **已安装**（10.0.20/10.0.100）；**JDK 与 Android SDK 仍未安装**（`JAVA_HOME`/`ANDROID_HOME` 为空），装完前 `NewsBoard.Maui` 无法编译验证。
+当前机器：`.NET SDK 10.0.203`、runtime `10.0.7`；`maui-android` workload **已安装**（10.0.20/10.0.100，约 2.57 GB）。
+Android 工具链在 **`D:\Android`**：JDK 17 于 `D:\Android\jdk-17`、Android SDK 于 `D:\Android\Sdk`（platform-36 / build-tools 36.0.0 / platform-tools）、NDK 27.2.12479018。
+**构建 Android 前必须先点源 `scripts\android-env.ps1`**（本机执行策略是 `Restricted`，故需先 `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force`）；否则报 `XA5300 找不到 Android SDK`。环境现状与占用清单见 `docs\android-env-report.md`。
+无 Android 设备/模拟器（`adb devices` 为空）→ 装机运行类验证做不了。
 
 ## 目录与文件所有权
 
