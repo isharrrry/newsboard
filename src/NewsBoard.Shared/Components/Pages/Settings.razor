@@ -116,6 +116,16 @@
             </div>
 
             <div class="row">
+                <label for="summaryLanguage">摘要语言</label>
+                <select id="summaryLanguage" @bind="_edit.SummaryLanguage">
+                    <option value="@SummaryLanguageOption.SimplifiedChinese">@SummaryLanguageOption.SimplifiedChinese.DisplayName()</option>
+                    <option value="@SummaryLanguageOption.TraditionalChinese">@SummaryLanguageOption.TraditionalChinese.DisplayName()</option>
+                    <option value="@SummaryLanguageOption.English">@SummaryLanguageOption.English.DisplayName()</option>
+                </select>
+                <span class="desc">模型提炼与呈现都用这个语言（默认简体中文）。</span>
+            </div>
+
+            <div class="row">
                 <label for="aiMinInterval">AI 最小调用间隔（分钟）</label>
                 <input id="aiMinInterval" type="number" min="0" max="1440" @bind="_edit.AiMinIntervalMinutes" />
                 <span class="desc">防止源站抖动重复烧 token。</span>
@@ -140,6 +150,18 @@
                 <label for="onlyToday">只用当天新闻</label>
                 <input id="onlyToday" type="checkbox" @bind="_edit.OnlyTodayNews" />
                 <span class="desc">过滤超过 24 小时的旧闻。</span>
+            </div>
+
+            <div class="row">
+                <label for="importanceThreshold">重要度门槛</label>
+                <input id="importanceThreshold" type="number" step="0.05" min="0" max="1" @bind="_edit.ImportanceThreshold" />
+                <span class="desc">只播放模型评分 ≥ 门槛的条目（默认 0.7）。</span>
+            </div>
+
+            <div class="row">
+                <label for="retentionDays">保留天数</label>
+                <input id="retentionDays" type="number" min="1" max="30" @bind="_edit.RetentionDays" />
+                <span class="desc">缓存只保留最近 N 天（默认 3 天），超期条目从播放列表清理。</span>
             </div>
             </div>
         </section>
@@ -210,6 +232,18 @@
             </div>
 
             <div class="row">
+                <label for="clockFontSize">时钟字号（sp）</label>
+                <input id="clockFontSize" type="number" min="8" max="200" @bind="_edit.ClockFontSizeSp" />
+                <span class="desc">时钟字样的字号，默认 32。</span>
+            </div>
+
+            <div class="row">
+                <label for="clockFontFamily">时钟字体</label>
+                <input id="clockFontFamily" type="text" placeholder="留空=跟随系统，例如 Microsoft YaHei" @bind="_edit.ClockFontFamily" />
+                <span class="desc">留空＝跟随系统默认字体。</span>
+            </div>
+
+            <div class="row">
                 <label for="showKeyword">显示关键字标签</label>
                 <input id="showKeyword" type="checkbox" @bind="_edit.ShowKeywordLabel" />
             </div>
@@ -222,6 +256,12 @@
             <div class="row">
                 <label for="showSource">显示新闻来源</label>
                 <input id="showSource" type="checkbox" @bind="_edit.ShowSource" />
+            </div>
+
+            <div class="row">
+                <label for="showImages">显示新闻图片（图文模式）</label>
+                <input id="showImages" type="checkbox" @bind="ShowImages" />
+                <span class="desc">等同于「播放 / 语音」里的播放模式：勾上＝文字+图片，取消＝纯文字。</span>
             </div>
             </div>
         </section>
@@ -468,6 +508,13 @@
     private string? _autoStartNotice;
     private string? _message;
     private string? _error;
+
+    /// <summary>「显示新闻图片（图文模式）」是 PlaybackMode 的派生视图，与「播放 / 语音」里的播放模式同源联动。</summary>
+    private bool ShowImages
+    {
+        get => _edit.PlaybackMode == PlaybackMode.TextAndImage;
+        set => _edit.PlaybackMode = value ? PlaybackMode.TextAndImage : PlaybackMode.TextOnly;
+    }
 
     private int FallbackCount => ParseFallbackLines(_rssFallbackText).Count;
 
