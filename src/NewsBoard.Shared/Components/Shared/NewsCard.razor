@@ -1,0 +1,76 @@
+@* 单条新闻渲染：纯文字 / 图文（plan §5.4）。滚动由外层容器负责，卡片自身只排版。 *@
+
+<div class="card" style="@CardStyle">
+    @if (Config.ShowKeywordLabel && !string.IsNullOrWhiteSpace(Item.Keyword))
+    {
+        <div class="card-keyword" style="@KeywordStyle">@Item.Keyword</div>
+    }
+
+    @if (HasImage)
+    {
+        <div class="card-image" style="@ImageStyle">
+            <img src="@Item.ImageUrl" alt="" onerror="this.style.display='none'" />
+        </div>
+    }
+
+    <div class="card-body">
+        <div class="card-title">@Item.Title</div>
+        @if (!string.IsNullOrWhiteSpace(Item.Summary))
+        {
+            <div class="card-summary" style="@TextStyle">@Item.Summary</div>
+        }
+    </div>
+
+    @if (Config.ShowSource && !string.IsNullOrWhiteSpace(Item.Source))
+    {
+        <div class="card-source" style="@SourceStyle">@Item.Source · @Item.PublishedAt.ToString("HH:mm")</div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public NewsItem Item { get; set; } = default!;
+
+    [Parameter, EditorRequired] public AppConfig Config { get; set; } = default!;
+
+    private bool HasImage => Config.PlaybackMode == PlaybackMode.TextAndImage && !string.IsNullOrWhiteSpace(Item.ImageUrl);
+
+    private bool TopImage => Config.ImagePosition == ImagePosition.TopImageBottomText;
+
+    private string Align => Config.TextAlign switch
+    {
+        TextAlignOption.Left => "left",
+        TextAlignOption.Right => "right",
+        _ => "center"
+    };
+
+    private string CardStyle => TopImage ? "flex-direction:column" : "flex-direction:row";
+
+    private string ImageStyle
+    {
+        get
+        {
+            var percent = Math.Clamp(Config.ImageScreenPercent, 10, 80);
+            return TopImage
+                ? $"flex:0 0 {percent}%;max-height:{percent}%;align-self:stretch"
+                : $"flex:0 0 {percent}%;max-width:{percent}%;align-self:stretch";
+        }
+    }
+
+    private string KeywordStyle
+        => $"color:{Config.AccentColor};font-size:{Sp(Config.KeywordLabelFontSizeSp)};font-weight:600;text-align:center";
+
+    private string TextStyle
+        => $"color:{Config.ForegroundColor};font-size:{Sp(Config.FontSizeSp)};font-weight:{Weight};"
+           + $"line-height:{Config.LineHeight.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)};"
+           + $"text-align:{Align}";
+
+    private string SourceStyle
+        => $"color:{Config.AccentColor};font-size:{Sp(Math.Max(12, Config.KeywordLabelFontSizeSp - 4))};"
+           + $"text-align:{Align};opacity:0.75";
+
+    // sp 按 1sp = 0.0625rem（根字号 16px）折算，字号随根字号整体缩放
+    private static string Sp(int value)
+        => (Math.Max(1, value) * 0.0625).ToString("0.####", System.Globalization.CultureInfo.InvariantCulture) + "rem";
+
+    private string Weight => string.IsNullOrWhiteSpace(Config.FontWeight) ? "Bold" : Config.FontWeight;
+}

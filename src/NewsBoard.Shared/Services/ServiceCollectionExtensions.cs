@@ -31,6 +31,8 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton<NewsFetchCoordinator>();
 
+        services.AddSingleton<PlaybackEngine>();
+
         return services;
     }
 
