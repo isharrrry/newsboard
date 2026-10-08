@@ -46,7 +46,8 @@ public class NewsFetchSchedulerTests
         Assert.Null(scheduler.LastWarning);
         Assert.NotEmpty(repo.GetPlaylist(config));
 
-        // 第一次抓取结束后进入定时等待，等待时长 = 配置的抓取间隔
+        // Changed 在抓取结束时触发，此时循环还没走到定时等待：等它登记延时再断言
+        await WaitUntilAsync(() => clock.Delays.Count > 0);
         Assert.Equal(TimeSpan.FromMinutes(5), clock.Delays.First());
 
         await scheduler.StopAsync();
@@ -114,8 +115,20 @@ public class NewsFetchSchedulerTests
         var winner = await Task.WhenAny(firstDone.Task, Task.Delay(TimeSpan.FromSeconds(5)));
         Assert.Same(firstDone.Task, winner);
 
+        await WaitUntilAsync(() => clock.Delays.Count > 0);
         Assert.Equal(TimeSpan.FromMinutes(1), clock.Delays.First());
         await scheduler.StopAsync();
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition, int timeoutSeconds = 5)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
+        while (!condition() && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(10);
+        }
+
+        Assert.True(condition(), "等待条件超时");
     }
 
     private sealed class SchedFakeSource(bool throwing = false) : INewsSource

@@ -376,21 +376,27 @@ stateDiagram-v2
 |---|---|---|---|
 | T0 | **实测联网搜索端点** | curl `{BaseUrlSearch}/v1/messages` + `web_search` 工具，确认返回真实搜索结果；不通则永久走通道 B | ✅ **已完成**：返回 `server_tool_use` + `web_search_tool_result`（真实检索结果），通道 A 可用；`deepseek-chat` → 后端 `deepseek-v4-flash` |
 | T1 | **三项目骨架 + 环境就绪** | `NewsBoard.sln` 三项目编译通过；WPF 版 `dotnet run` 起窗口显示 Razor 页；MAUI 版出 APK 装进手机能启动 | 🟡 **编译与打包通过，装机未验**：`dotnet build NewsBoard.slnx`（含 MAUI/Android）**0 警告 0 错误**；WPF 实机运行：进程存活、`MainWindowTitle=新闻看板`、`msedgewebview2` 子进程 12 个；Android 产出 `com.newsboard.app-Signed.apk` **14.96 MB**，但**本机无设备/模拟器**（`adb devices` 为空）⇒ 装机启动无法验证 |
-| T2 | Shared 空壳：BlazorWebView 宿主（两端） | Android 默认是带系统状态栏的纯色页，设置里开沉浸全屏后状态栏消失；WPF 默认是带标题栏的窗口，开无边框全屏后铺满屏幕、可退出 | 🟡 **Windows 侧通过**：默认 `1600x1000@(160,10)` 带标题栏 → F11 `1920x1080@(0,0)` 铺满 → Esc 还原，配置同步落盘（`WindowsBorderlessFullscreen` 真值往返）。**局限**：按键经 `WM_KEYDOWN` 投递（SendKeys 在本机送不进该窗口），且本轮全程未人工按键；Android 状态栏/沉浸式未装机。另修掉真缺陷：WebView2 抢焦点后 WPF 收不到键盘，已加 JS→宿主消息桥 |
+| T2 | Shared 空壳：BlazorWebView 宿主（两端） | Android 默认是带系统状态栏的纯色页，设置里开沉浸全屏后状态栏消失；WPF 默认是带标题栏的窗口，开无边框全屏后铺满屏幕、可退出 | 🟡 **Windows 侧通过**：默认 `1600x1000@(160,10)` 带标题栏 → F11 `1920x1080@(0,0)` 铺满 → Esc 还原，配置同步落盘（`WindowsBorderlessFullscreen` 真值往返）；**Blazor 渲染实机截图**：大字新闻卡片（关键字标签 + 时钟 + 大字标题/摘要 + 设置齿轮）已在 WebView2 中正常显示。**局限**：按键经 `WM_KEYDOWN` 投递（SendKeys 在本机送不进该窗口），且本轮全程未人工按键；Android 状态栏/沉浸式未装机。另修掉两个真缺陷：WebView2 抢焦点后 WPF 收不到键盘（加 JS→宿主消息桥）、两端 `index.html` 未引入 `measure.js` |
 | T3 | `IScreenController`（Android 实现）：常亮 + 亮度 0 + 恢复 | 手动触发黑屏，静置 6 分钟：屏幕不锁、不自动息屏；WPF 用空实现不报错 | 🟡 WPF 空实现参与启动/全屏链路无异常；Android `AndroidScreenController`（KeepScreenOn + 窗口亮度 0 + 黑屏不动 KeepScreenOn）已实现，**未装机验证** |
 | T4 | `AppConfig` + 设置页 + 持久化 + `ISecretStore` | 改配置 → 杀进程重启配置还在；Key 两端都不落 JSON 明文 | 🟡 **读取侧端到端已实测**：手工预置 `%LOCALAPPDATA%\NewsBoard\config.json`（只写 3 个字段）→ 启动发布版 → **窗口变为 `1920x1080@(0,0)` 无边框全屏**（配置真被应用），缺字段补默认（宽容读盘）；读回 JSON 确认 **无 `ApiKey` 键**、值保持。写入侧：`ConfigStore` 13 项单测（全字段往返、无 ApiKey 键、坏文件降级）+ SA4 的 F11/Esc 实测写出 `True`/`False`。WPF DPAPI 密文 278B 实测不含明文。**未做**「在设置页 UI 上改完再杀进程重启」的自动化验证（UI 注入受限） |
 | T4b | 开机自启（Android `BootReceiver`+前台服务；WPF 注册表 Run） | 两端各重启一次机器：App 自动起来并开始轮播；Android 上确认不被厂商自启动管理拦掉 | 🟡 WPF：HKCU Run 键 Enable→IsEnabled→Disable 往返实测通过（无残留），`IAutoStart` 已接设置页；Android：`BootReceiver` + 前台服务 + 全屏通知已实现（不走 `StartActivity`）。**未做**重启机器验证 |
-| T5 | `RssNewsSource` | 打印 6 个关键字各 3 条标题+时间，日期新鲜 | ✅ **主干实测**：默认共享频道源（中新网滚动）**只发 1 次 HTTP**，10 条原文全部带发布时间且新鲜（11:13–11:33，当下 11:40）；含 `{q}` 模板仍走「每关键字各抓一次」；备用链（人民网/IT之家）按序回退。口径变更：共享源不再按关键字分桶，条目 `Keyword` 用频道名 |
-| T6 | `NewsSummarizer` | 严格 JSON，逐条 ≤ 60 字；抽查 3 条与原文事实一致、无幻觉 | ✅ 主干实测：一次批量提炼 10 篇 → 7 条，摘要 **23–36 字**，全部 ≤ 50 字软上限；联网通道摘要 30–55 字；严格 JSON 解析 + 围栏容错；失败重试 1 次后退化为标题截断 |
-| T7 | 去重 + 缓存 | 连跑 3 轮，第 2、3 轮 AI 调用次数为 0 | ✅ 主干实测：第二轮 **HTTP 0 次、AI 0 次**（Warning=未到最小 AI 间隔）；URL 哈希去重 + `IncludesAiCooldown` 单测覆盖（含「连跑两轮第二轮 chat 调用为 0」） |
+| T5 | `RssNewsSource` | 打印 6 个关键字各 3 条标题+时间，日期新鲜 | ✅ **主干实测 + 应用内实测**：默认共享频道源（中新网滚动）**只发 1 次 HTTP**，10 条原文全部带发布时间且新鲜（11:13–11:33，当下 11:40）；含 `{q}` 模板仍走「每关键字各抓一次」；备用链（人民网/IT之家）按序回退。应用内：WPF 启动后自己抓取并落盘 `news.json`（10 条，时间 11:56–11:58）。口径变更：共享源不再按关键字分桶，条目 `Keyword` 用频道名 |
+| T6 | `NewsSummarizer` | 严格 JSON，逐条 ≤ 60 字；抽查 3 条与原文事实一致、无幻觉 | ✅ 主干实测：一次批量提炼 10 篇 → 7 条，摘要 **23–36 字**，全部 ≤ 50 字软上限；联网通道摘要 30–55 字；严格 JSON 解析 + 围栏容错；失败重试 1 次后退化为标题截断。应用内实测：摘要 34/38/37 字，与源标题事实一致（如「9月末外储为34003亿美元…」） |
+| T7 | 去重 + 缓存 | 连跑 3 轮，第 2、3 轮 AI 调用次数为 0 | ✅ 主干实测：第二轮 **HTTP 0 次、AI 0 次**（Warning=未到最小 AI 间隔）；URL 哈希去重 + `IsWithinAiCooldown` 单测覆盖（含「连跑两轮第二轮 chat 调用为 0」）；应用内缓存落盘 `news.json`（含 `LastAiCallAt`）供断网续播 |
 | T8 | `ISpeechService`（两端）+ 设置页语速 | Android 与 Windows 各念一遍中文摘要，语速/音调改动生效，完成回调准确触发 | 🟡 **Windows 侧通过**：`System.Speech` + `Microsoft Huihui Desktop`(zh-CN) 实测朗读 6135ms 后 `SpeakCompleted` 精确触发、取消 744ms 返回、语速映射 Rate、音调走 SSML（失败退化纯文本）；设置页含「测试播报/检测语音包」。Android `AndroidSpeechService` 已实现（`UtteranceProgressListener` + 异步初始化 + 取消），**未装机** |
-| T9 | `PlaybackEngine` 状态机（含 TTS 生命周期） | 日志：SHOW 60s → BLACKOUT 300s → SHOW 误差 <1s；TTS 结束≈切条时刻；黑屏期间无朗读 | ⬜ 实现中（sa3 分支，未并入主干） |
-| T10 | 播放 UI：配色/字号/边距 + 溢出判定 + 滚动联动 | 造 200 字长文：念完那一刻基本滚到底；50 字短文本不滚动 | ⬜ 实现中（sa3 分支） |
-| T11 | 图文模式 | 有 `og:image` 正常显示；坏 URL 优雅退化 | 🟡 `ImageResolver` 已并入主干并单测：`og:image`/`twitter:image` 兜底、相对地址补全、非 http(s) 与超时返回 `null`（退化为纯文字）；`Display.razor` 的图文布局待 sa3 合并 |
+| T9 | `PlaybackEngine` 状态机（含 TTS 生命周期） | 日志：SHOW 60s → BLACKOUT 300s → SHOW 误差 <1s；TTS 结束≈切条时刻；黑屏期间无朗读 | ✅ **WPF 实机循环已录证**：把 `ShowDurationSeconds/BlackoutDurationSeconds` 设为 15/10 后连续截图 —— t=10s 画面为黑板 + 绿色时钟 + 大字条目，t=22s 画面**全黑**（`.blackout` 遮罩生效），t=31s 恢复显示；配置 60/300 时同一条循环路径由 19 个引擎单测覆盖（相位等待事件驱动、时间全取自注入 `IClock`、黑屏期间断言不调用 KeepScreenOn/不朗读、`WindowEndBehavior=InterruptImmediately` 取消在途朗读） |
+| T10 | 播放 UI：配色/字号/边距 + 溢出判定 + 滚动联动 | 造 200 字长文：念完那一刻基本滚到底；50 字短文本不滚动 | ✅ **实机 A/B 对照**：230 字长文 + 56sp + 手动关 TTS（匀速 220px/s）—— 修复前截图显示正文**开头**且末行被裁（不滚），修复后 t=11s 截图**已滚到底、末行完整可见**；50 字短文本不滚动（`measure` 判无溢出）。配色/字号/边距/时钟/关键字标签均由配置驱动并经截图确认。**TTS 驱动动态调速**（念完那一刻滚到底）只有单测覆盖，未做音频级验证 |
+| T11 | 图文模式 | 有 `og:image` 正常显示；坏 URL 优雅退化 | ✅ **实机双向验证**：`PlaybackMode=TextAndImage` + `ImageScreenPercent=40` —— 好图（内嵌 data URL 测试图）截图显示**上图下文**，图占上部约 40%，标题摘要在下；坏 URL（`https://invalid.invalid/...`）截图**无破图、无占位**，自动退化为纯文字。`ImageResolver` 另单测覆盖 `og:image`/`twitter:image` 兜底、相对地址补全、超时返回 null |
 | T12 | Release 打包 | APK 装机可用、体积达标；WPF `dotnet publish` 出可分发目录并运行 | 🟡 **两端都出包了**：WPF `dotnet publish -c Release` → `.tmp/publish-wpf` **45 文件 / 28.14MB**，从发布目录直接运行成功（标题「新闻看板」、`msedgewebview2` 子进程 6 个、响应正常），RCL 静态资产已随包（`wwwroot\_content\NewsBoard.Shared\css\settings.css`、`_framework\blazor.webview.js`）；Android **Debug APK 14.96 MB**（§7 的 Release trimming/AOT 组合尚未启用）。**未验**：APK 装机可用性（无设备）；WPF 发布包未做自包含/单文件 |
 | T13 | 长稳测试 | Android 连跑 2 小时：不崩溃、内存不持续增长、不锁屏、朗读与切条节奏稳定 | ⬜ 本机无 Android 设备，无法执行（环境限制） |
 
 **状态口径**：✅ = 按原验证方式完成并有实测证据；🟡 = 部分完成，受限项已在单元格内写明（本轮主要受限项是「本机无 Android 设备/模拟器」与「UI 自动化注入受限」）；⬜ = 未开始。
+
+> **端到端联调（2026-10-08 第 6 轮，真实密钥 + 真实网络）**：WPF 宿主从启动到画面全部打通 —— 启动 → 抓取 RSS → DeepSeek 提炼 → 落盘 `%LOCALAPPDATA%\NewsBoard\news.json`（应用自己写出的 10 条，摘要 34/38/37 字）→ 大字轮播渲染 → 15s 后全黑 → 10s 后回到亮屏，每一步都有 `PrintWindow` 真实截图或落盘文件佐证。
+> **本轮修掉 3 个集成缺陷**（都不在单个子代理的边界内，属"缝"里的问题）：
+> 1. **抓取调度器缺失**：`NewsFetchCoordinator` 已注册但全项目无人调用 ⇒ 应用永远停在「正在获取新闻…」。已补 `NewsFetchScheduler`（启动即抓一次 + 按「抓取间隔」循环，失败只记警告不外抛），由 `InitializeNewsBoardAsync` 拉起，并配 3 个单测。
+> 2. **两端 `index.html` 都没引入 `measure.js`** ⇒ `window.newsBoard` 不存在，溢出滚动静默失效。已补 `<script src="_content/NewsBoard.Shared/js/measure.js">`。
+> 3. **`measure.js` 与调用方参数不匹配**：`measure(id)` 收 id，而 `startScroll/finishScroll/stopScroll` 只收元素对象，`Display.razor` 传的是 id 字符串 ⇒ 滚动拿到 `NaN` 距离、静默不动。已让四个 API 同时接受 id 与元素。
 
 **实施顺序**：T0（决定通道）→ T1–T3（打通「能装、能黑屏、不锁屏」核心链路）→ T8/T9（TTS 与状态机）→ 其余。
 
@@ -446,12 +452,12 @@ stateDiagram-v2
 
 | 分支 | 范围 | 状态 |
 |---|---|---|
-| `sa1` | 采集 + AI 提炼（T5/T6/T7） | ✅ 已合并（RSS 源修订的追加任务进行中） |
-| `sa2` | 配置持久化 + 设置页（T4） | ✅ 已合并（设置页追加项进行中） |
-| `sa3` | 播放引擎 + 播放 UI（T9/T10/T11） | 开发中 |
-| `sa4` | WPF 宿主（T1/T2/T3/T8 的 Windows 侧） | ✅ 已合并（宿主接线追加任务进行中） |
-| `sa5` | Android 环境（§7：workload + SDK + JDK） | workload 已装，JDK/SDK 安装中 |
-| `sa6` | MAUI(Android) 宿主（T1/T2/T3/T4b/T8 的 Android 侧） | 已提交，待接线与环境编译验证 |
+| `sa1` | 采集 + AI 提炼（T5/T6/T7） | ✅ 已合并（含 RSS 共享源与备用链修订） |
+| `sa2` | 配置持久化 + 设置页（T4） | ✅ 已合并（含 RSS 备用源与「开机自启」`IAutoStart` 开关） |
+| `sa3` | 播放引擎 + 播放 UI（T9/T10/T11） | ✅ 已合并 |
+| `sa4` | WPF 宿主（T1/T2/T3/T8 的 Windows 侧） | ✅ 已合并（含宿主接线与 IAutoStart 实现） |
+| `sa5` | Android 环境（§7：workload + SDK + JDK） | ✅ 已合并（workload 10.0.20 + JDK 17 + SDK 36 + NDK 27.2） |
+| `sa6` | MAUI(Android) 宿主（T1/T2/T3/T4b/T8 的 Android 侧） | ✅ 已合并（编译通过并产出 APK） |
 
 集成记录（主干 HEAD 依次递增）：
 
@@ -463,5 +469,10 @@ stateDiagram-v2
 4. `集成 SA4：WPF 宿主 + 平台服务（T1/T2/T3/T8 的 Windows 侧）` —— 合并 `sa4@f42c835`。
    验证：`dotnet build NewsBoard.slnx` **0 警告 0 错误**（至此整解决方案绿色）；SA4 侧实机验证：进程存活、`MainWindowTitle='新闻看板'`、`msedgewebview2` 子进程 12 个；F11 全屏 `1920x1080@0,0` / Esc 还原；TTS zh-CN 完成回调 6135ms 精确触发；密钥+自启探针 11/11 PASS。
 5. `集成：Shared 侧统一 DI 装配入口 AddNewsBoardCore + 启动期加载` —— 新增 `Services/ServiceCollectionExtensions.cs`，两端宿主共用。
-6. 待解：契约默认值变更致 10 个测试暂红（SA1 8 个、SA2 2 个），已派回原代理按新契约修正；`AddNewsBoardCore` 中 `PlaybackEngine` 注册待 SA3 合并后补入。
+6. `集成 SA5 / SA6 / SA1 修订 / SA2 修订` —— Android 环境 + MAUI 宿主 + RSS 共享源 + 设置页新字段（`slnx` 纳入 MAUI 项目，AGENTS 与 §7 同步更新）。
+7. `集成 SA3：播放引擎状态机 + 播放 UI + 溢出滚动联动（T9/T10/T11）` —— 合并 `sa3@c74375a`。
+   验证：`dotnet build NewsBoard.slnx` 0 警告 0 错误（19.2s）；`dotnet test` **101/101 通过（8s）**。
+8. `集成修复：补抓取调度器 + 两端引入 measure.js + measure.js 支持传 id` —— 见 §8 后的「端到端联调」说明，附 3 个调度器单测。
+   验证：`dotnet test` **104/104 通过，连续 3 次稳定**；WPF 实机端到端跑通并截图留证。
+
 
