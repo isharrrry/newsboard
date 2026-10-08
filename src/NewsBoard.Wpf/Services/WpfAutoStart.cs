@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using Microsoft.Win32;
+using NewsBoard.Shared.Services.Abstractions;
 
 namespace NewsBoard.Wpf.Services;
 
@@ -8,10 +9,42 @@ namespace NewsBoard.Wpf.Services;
 /// Windows 开机自启（plan §3.4）：在 HKCU\...\CurrentVersion\Run 写入一个值，
 /// 只在当前用户生效，不需要管理员权限。
 /// </summary>
-public sealed class WpfAutoStart
+public sealed class WpfAutoStart : IAutoStart
 {
     private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string ValueName = "NewsBoard";
+
+    public bool IsSupported => true;
+
+    public Task<bool> IsEnabledAsync() => Task.FromResult(IsEnabled());
+
+    public Task SetEnabledAsync(bool enabled)
+    {
+        if (enabled)
+        {
+            Enable();
+        }
+        else
+        {
+            Disable();
+        }
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>桌面端无需厂商白名单，跳到「设置 → 应用 → 启动」页让用户确认即可。</summary>
+    public Task<bool> OpenSystemSettingsAsync()
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo("ms-settings:startupapps") { UseShellExecute = true });
+            return Task.FromResult(true);
+        }
+        catch
+        {
+            return Task.FromResult(false);
+        }
+    }
 
     public bool IsEnabled()
     {

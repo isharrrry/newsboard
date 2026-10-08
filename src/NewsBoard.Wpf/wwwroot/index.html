@@ -11,5 +11,16 @@
 <body>
     <div id="app">正在加载…</div>
     <script src="_framework/blazor.webview.js"></script>
+    <script>
+        // 键盘焦点在 WebView2 内容里时，WPF 侧收不到按键（无边框全屏下会因此出不来），
+        // 这里把 F11/Esc 转发给宿主处理。
+        window.addEventListener('keydown', function (e) {
+            if (e.key !== 'F11' && e.key !== 'Escape') return;
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage('hostKey:' + e.key);
+                e.preventDefault();
+            }
+        }, true);
+    </script>
 </body>
 </html>
