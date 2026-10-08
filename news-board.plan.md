@@ -179,7 +179,7 @@ flowchart TD
 | 关键字列表 | string[] | `武汉, 中国, 美国, 台湾, 国际, AI` | 可增删排序 |
 | 每关键字篇数 X | int | `3` | 每关键字各取 X 篇 |
 | 抓取间隔 | int(分钟) | `5` | 定时抓取周期 |
-| 摘要字数 | int | `50` | ±10 字软约束 |
+| 摘要字数 | int | `120` | ±10 字软约束；实测模型常超字数，两条通道都在本地按「上限 1.4 倍 → 最后一个句号」截断 |
 | AI 最小调用间隔 | int(分钟) | `10` | 防止源站抖动重复烧 token |
 | RSS 源模板 | string | 中新网滚动新闻 | **修订 R1**：原 `https://www.bing.com/news/search?q={q}&format=RSS` 已失效（返回 HTML）；新默认 `https://www.chinanews.com.cn/rss/scroll-news.xml`，含 `{q}` 时按关键字各抓一次，不含则视为共享频道源只抓一次 |
 | RSS 备用源 | string[] | 人民网 politics + IT之家 | **新增（R1）**：主源失败时按序回退 |
@@ -200,6 +200,7 @@ flowchart TD
 | 文字对齐 | enum | 居中 |
 | 显示时钟 | bool | `true` |
 | 显示关键字标签 | bool | `true` |
+| 显示新闻标题 | bool | `false` | 卡片默认只显示摘要（标题与摘要常高度重合，同屏重复无意义），需要时可开 |
 | 显示新闻来源 | bool | `false` |
 
 ### 4.3 播放 / 语音
@@ -443,6 +444,7 @@ stateDiagram-v2
 | fb-10 | chat：「无边框全屏 false、Android 显示系统状态栏 true，设置中可启用」 | ✅ §4.4 定稿：Windows 无边框全屏=`false`、Android 显示系统状态栏=`true`，两者均进设置页；§1 范围、§3.1 宿主说明、任务 T2 的验证口径全部同步改为「默认普通窗口 / 带状态栏，可切换」 |
 | **R1** | 实施期实测：Bing News RSS 端点已失效 | ✅ **契约修订**：§4.1 默认 `新闻获取方式` `RSS+提炼` → `自动`；`RssTemplate` 默认值换成实测可用频道源，新增 `RssFallbackTemplates` 备用链（含 `{q}` = 关键字各抓一次 / 不含 = 共享源只抓一次）；§6.1 补修订说明。证据：Bing `?format=RSS` 返回 `text/html`、百度 `newsrss` 返回安全验证页、Google News RSS 超时；中新网 / 人民网 / IT之家 频道源实测可用 |
 | **R2** | 实施期实测：WPF 宿主 TFM 需版本化平台号 | ✅ **约定修订**：WPF TFM 由 `net10.0-windows` 改为 `net10.0-windows10.0.19041.0`（裸 TFM 启动即崩 `FileNotFoundException: Microsoft.Windows.SDK.NET`）；`AGENTS.md` 同步。另记录 DPAPI 无需 NuGet 包、`System.Speech` 用 10.0.7 |
+| **R3** | 使用反馈：标题与摘要内容高度重合，且摘要太短 | ✅ **契约修订**：① 新增 `AppConfig.ShowTitle`（默认 `false`）——卡片默认只显示摘要，标题需显式打开；② `SummaryMaxChars` 默认 `50` → **`120`**；两条通道的提示词由「写一句」改为「写 2–3 句连贯的话，先交代谁+做了什么，再补关键数字/结果，最后补影响或后续，不复述标题」；③ 新增 `SummaryText.Normalize` 作为两条通道共用的本地二次校验（模型实测会超字数：联网通道出现过 183 字），按「上限 1.4 倍 → 截到最后一个句号」收敛。实测：RSS 通道摘要由 23–36 字变为 61–98 字，联网搜索通道 77–168 字（平均 137） |
 
 ---
 

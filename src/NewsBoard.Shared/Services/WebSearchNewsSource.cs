@@ -64,7 +64,7 @@ public sealed class WebSearchNewsSource : INewsSource
             if (element.ValueKind != JsonValueKind.Object) continue;
 
             var url = AiJson.GetString(element, "url")?.Trim();
-            var summary = AiJson.GetString(element, "summary")?.Trim();
+            var summary = SummaryText.Normalize(AiJson.GetString(element, "summary"), config.SummaryMaxChars);
             if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(summary)) continue;
 
             items.Add(new RawNewsItem
@@ -87,10 +87,11 @@ public sealed class WebSearchNewsSource : INewsSource
         builder.AppendLine($"请针对关键字「{keyword}」联网检索当天的新闻，挑选最新 {config.ItemsPerKeyword} 篇。");
         builder.AppendLine("硬性要求：");
         builder.AppendLine("1. 只依据联网检索到的真实结果，严禁编造标题、链接或内容。");
-        builder.AppendLine($"2. 每条摘要讲清「谁 + 做了什么 + 结果/影响」，不超过 {config.SummaryMaxChars} 个汉字。");
-        builder.AppendLine("3. 只输出一个严格的 JSON 数组，不要任何解释文字或 Markdown 围栏，格式为：");
+        builder.AppendLine($"2. 每条摘要不超过 {config.SummaryMaxChars} 个汉字；写 2–3 句连贯的话，先交代「谁 + 做了什么」，再补「关键数字或结果」，最后补「影响或后续」，把检索到的事实说完整，不要只写一句概括。");
+        builder.AppendLine("3. 用陈述语气直接叙述事实，不要写「本文」「据报道」「摘要」等字样，不要复述标题。");
+        builder.AppendLine("4. 只输出一个严格的 JSON 数组，不要任何解释文字或 Markdown 围栏，格式为：");
         builder.AppendLine($"[{{\"title\":\"标题\",\"summary\":\"摘要\",\"url\":\"原文链接\",\"keyword\":\"{keyword}\"}}]");
-        builder.AppendLine("4. 检索不到足够结果时少输出几条即可，不要编造。");
+        builder.AppendLine("5. 检索不到足够结果时少输出几条即可，不要编造。");
         return builder.ToString();
     }
 }

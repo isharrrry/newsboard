@@ -48,7 +48,7 @@
         }
     </div>
 
-    <div class="board-controls" role="toolbar" aria-label="播放控制">
+    <div class="board-controls @(Engine.Phase == PlaybackPhase.Blackout ? "board-controls--hidden" : "")" role="toolbar" aria-label="播放控制">
         <button type="button" class="board-btn" title="上一条" aria-label="上一条"
                 disabled="@(!HasPlaylist)" @onclick="PreviousAsync">&#9198;</button>
         <button type="button" class="board-btn" title="下一条" aria-label="下一条"
@@ -108,7 +108,9 @@
         _clockText = DateTimeOffset.Now.ToString("HH:mm:ss");
         _clockTimer = new Timer(_ => _ = RefreshClockAsync(), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
 
-        await Repository.LoadAsync();
+        // 播放前必须先把配置（含 API Key）与缓存加载好、并确保抓取调度在跑；
+        // 幂等，宿主启动时已调用过也无副作用（否则引擎会拿默认配置起播、且不会有任何抓取）。
+        await Services.InitializeNewsBoardAsync();
         await Engine.StartAsync();
     }
 

@@ -11,7 +11,10 @@
     }
 
     <div class="card-body">
-        <div class="card-title">@Item.Title</div>
+        @if (Config.ShowTitle && !string.IsNullOrWhiteSpace(Item.Title))
+        {
+            <div class="card-title">@Item.Title</div>
+        }
         @if (!string.IsNullOrWhiteSpace(Item.Summary))
         {
             <div class="card-summary" style="@TextStyle">@Item.Summary</div>

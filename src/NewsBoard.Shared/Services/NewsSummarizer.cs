@@ -40,7 +40,7 @@ public sealed class NewsSummarizer
             if (summaries is not null)
             {
                 // 模型没给这条（或给空）就跳过，不退化为标题
-                summary = summaries.TryGetValue(url, out var text) ? NormalizeSummary(text, config.SummaryMaxChars) : string.Empty;
+                summary = summaries.TryGetValue(url, out var text) ? SummaryText.Normalize(text, config.SummaryMaxChars) : string.Empty;
             }
             else
             {
@@ -68,19 +68,6 @@ public sealed class NewsSummarizer
 
     private static string Truncate(string text, int maxChars)
         => maxChars > 0 && text.Length > maxChars ? text[..maxChars] : text;
-
-    /// <summary>本地二次校验：超过上限 1.4 倍时截断到最后一个句号。</summary>
-    private static string NormalizeSummary(string? summary, int maxChars)
-    {
-        var text = CleanInline(summary);
-        if (text.Length == 0) return string.Empty;
-
-        var limit = maxChars > 0 ? (int)(maxChars * 1.4) : text.Length;
-        if (text.Length <= limit) return text;
-
-        var cut = text.LastIndexOf('。', Math.Min(limit, text.Length - 1));
-        return cut >= 0 ? text[..(cut + 1)] : text[..limit];
-    }
 
     private static string CleanInline(string? text)
         => string.IsNullOrWhiteSpace(text)
@@ -172,13 +159,14 @@ public sealed class NewsSummarizer
     private static string BuildPrompt(string keyword, IReadOnlyList<RawNewsItem> candidates, AppConfig config)
     {
         var builder = new StringBuilder();
-        builder.AppendLine($"你是新闻摘要编辑。下面是关键字「{keyword}」的 {candidates.Count} 篇新闻原文片段，请为每一篇写一句摘要。");
+        builder.AppendLine($"你是新闻摘要编辑。下面是关键字「{keyword}」的 {candidates.Count} 篇新闻原文片段，请为每一篇写一段摘要。");
         builder.AppendLine("硬性要求：");
         builder.AppendLine("1. 只依据给出的原文，严禁编造数字、时间、人名、地点。");
-        builder.AppendLine($"2. 每条摘要不超过 {config.SummaryMaxChars} 个汉字，讲清「谁 + 做了什么 + 结果/影响」。");
-        builder.AppendLine("3. 只输出一个严格的 JSON 数组，不要任何解释文字或 Markdown 围栏，元素形如 {\"url\":\"原文链接\",\"summary\":\"摘要\"}。");
-        builder.AppendLine("4. url 必须与下面给出的原文链接完全一致。");
-        builder.AppendLine("5. 原文信息不足以写摘要时，summary 留空字符串，不要猜测。");
+        builder.AppendLine($"2. 每条摘要不超过 {config.SummaryMaxChars} 个汉字；写 2–3 句连贯的话，先交代「谁 + 做了什么」，再补「关键数字或结果」，最后补「影响或后续」，把原文里有的事实说完整，不要只写一句概括。");
+        builder.AppendLine("3. 用陈述语气直接叙述事实，不要写「本文」「据报道」「摘要」等字样，不要复述标题。");
+        builder.AppendLine("4. 只输出一个严格的 JSON 数组，不要任何解释文字或 Markdown 围栏，元素形如 {\"url\":\"原文链接\",\"summary\":\"摘要\"}。");
+        builder.AppendLine("5. url 必须与下面给出的原文链接完全一致。");
+        builder.AppendLine("6. 原文信息不足以写摘要时，summary 留空字符串，不要猜测。");
         builder.AppendLine();
         builder.AppendLine("原文：");
 

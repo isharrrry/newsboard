@@ -37,6 +37,24 @@ public static class MauiProgram
 
         builder.Services.AddNewsBoardCore();
 
-        return builder.Build();
+        var app = builder.Build();
+
+        // 启动期初始化：加载配置（含从 ISecretStore 取回 API Key）与新闻缓存，并拉起定时抓取调度。
+        // 不 await（MAUI 的 CreateMauiApp 是同步的），失败只记日志，不让 App 起不来。
+        _ = InitializeAsync(app.Services);
+
+        return app;
+    }
+
+    private static async Task InitializeAsync(IServiceProvider services)
+    {
+        try
+        {
+            await services.InitializeNewsBoardAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[NewsBoard] 启动初始化失败：{ex}");
+        }
     }
 }

@@ -151,6 +151,13 @@ body {
     opacity: 1;
 }
 
+/* 灭屏（BLACKOUT）期间隐藏控制条，让画面真的全黑 */
+.board-controls--hidden {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+}
+
 .board-btn {
     display: inline-flex;
     align-items: center;
