@@ -334,9 +334,15 @@ stateDiagram-v2
 
 ## 7. 环境准备
 
-当前机器实测：`.NET SDK 10.0.300 / 9.0.308` 已装，**未安装任何 workload，`ANDROID_HOME` / `JAVA_HOME` 均为空**。
+> **【已落地，2026-10-08】** 本节原为待办清单，现按实测结果更新（详细命令与输出见 `docs/android-env-report.md`）：
+> - `dotnet workload install maui-android` → **成功**（`maui-android 10.0.20/10.0.100`，占用约 2.57 GB）；本机 shell 本身有管理员权限，**未触发 UAC**。
+> - JDK 17 → **`D:\Android\jdk-17`**（OpenJDK 17.0.20.1 LTS，0.29 GB）。
+> - Android SDK → **`D:\Android\Sdk`**（2.60 GB；platform-36 / build-tools 36.0.0 / platform-tools / cmdline-tools，许可已自动接受）+ **NDK 27.2.12479018**（2.20 GB，Release+AOT 需要）。合计新增约 5.5 GB。
+> - 提供 `scripts\android-env.ps1` 一键点源环境（幂等，只影响当前进程）：`Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force; . .\scripts\android-env.ps1`。**不点源会报 `XA5300 找不到 Android SDK`。**
+> - 实测端到端：`dotnet build NewsBoard.slnx`（含 MAUI/Android）**0 警告 0 错误**，产出 `com.newsboard.app-Signed.apk` **14.96 MB**（Debug）。
+> - **未做**：Release+AOT publish 体积优化（NDK 已就位但未跑）、emulator/AVD、真机安装（`adb devices` 为空，本机无设备）。
 
-### Android（大头，15–25GB）
+原清单（保留备查）：
 1. `dotnet workload install maui-android`（需管理员权限）
 2. Android SDK + platform-tools + JDK 17：
    `dotnet build -t:InstallAndroidDependencies -f net10.0-android -p:AndroidSdkDirectory=<路径> -p:AcceptAndroidSDKLicenses=true`
