@@ -1,7 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk.Razor">
 
   <PropertyGroup>
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <!-- 必须带 Windows 平台版本：BlazorWebView 内部用 WebView2CompositionControl(D3D 合成)，
+         它需要 CsWinRT 投影程序集 Microsoft.Windows.SDK.NET，而该程序集只在版本化 TFM 下提供 -->
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <OutputType>WinExe</OutputType>
     <UseWPF>true</UseWPF>
     <Nullable>enable</Nullable>
@@ -13,11 +15,20 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- 与 SDK/runtime 10.0.7 对齐：WebView.Wpf 走 10.0.0 版本线，其余取 10.0.7 -->
     <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Wpf" Version="10.0.0" />
+    <PackageReference Include="System.Speech" Version="10.0.7" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\NewsBoard.Shared\NewsBoard.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- BlazorWebView 的 HostPage 需要在输出目录可见 -->
+    <Content Update="wwwroot\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
 </Project>
