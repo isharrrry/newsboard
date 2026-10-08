@@ -43,6 +43,24 @@ public sealed class Sa2SettingsPageTests : IDisposable
         Assert.Contains("disabled", html);
     }
 
+    /// <summary>
+    /// 设置页排版回归：必须用 settings-card 分组容器，且不能复用播放页的 .card
+    /// （app.css 里 .card 是 display:flex 的新闻卡片，撞名会让所有行挤成一行）。
+    /// 「取消」必须是回看板的链接，点了要能离开本页。
+    /// </summary>
+    [Fact]
+    public async Task Settings_UsesGroupedCardLayout_AndCancelIsBackLink()
+    {
+        var html = await RenderSettingsAsync(autoStart: null);
+
+        Assert.Contains("settings-page", html);
+        Assert.Contains("class=\"settings-card\"", html);
+        Assert.Contains("class=\"settings-actions\"", html);
+        Assert.Contains("class=\"btn-secondary\"", html);
+        Assert.Contains("href=\"/\"", html);
+        Assert.DoesNotContain("class=\"card\"", html);
+    }
+
     [Fact]
     public async Task Settings_RendersCurrentFallbackTemplatesIntoTextarea()
     {

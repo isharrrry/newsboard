@@ -1,70 +1,114 @@
-/* 设置页专用样式（不依赖 app.css，可单独加载） */
+/* 设置页样式：iOS「分组列表」排版（label 在左、控件右对齐、说明文字灰字在下）
+   不依赖 app.css，可单独加载。
+   注意：app.css 里 html/body 是 overflow:hidden，所以滚动容器必须由 .settings-page 自己承担。 */
 
 .settings-page {
-    max-width: 960px;
-    margin: 0 auto;
-    padding: 24px 20px 80px;
-    color: #ECECEC;
-    background: #14161A;
+    --bg: #000000;
+    --card: #1C1C1E;
+    --card-2: #2C2C2E;
+    --sep: #38383A;
+    --text: #FFFFFF;
+    --text-2: #8E8E93;
+    --accent: #00D4AA;
+    --danger: #FF453A;
+    --radius: 12px;
+
+    height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    background: var(--bg);
+    color: var(--text);
     font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
     font-size: 16px;
-    line-height: 1.6;
+    line-height: 1.45;
+    padding-top: 64px;
+    padding-bottom: 104px;
 }
 
+.settings-page * {
+    box-sizing: border-box;
+}
+
+/* ---------- 顶部栏（固定在真实视口顶部） ---------- */
 .settings-header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 5;
     display: flex;
-    align-items: baseline;
+    align-items: center;
     justify-content: space-between;
-    gap: 16px;
-    border-bottom: 2px solid #2A2F38;
-    padding-bottom: 12px;
-    margin-bottom: 8px;
+    gap: 12px;
+    padding: 14px max(20px, calc(50% - 380px));
+    background: rgba(0, 0, 0, 0.86);
+    backdrop-filter: blur(12px);
+    border-bottom: 0.5px solid var(--sep);
 }
 
 .settings-header h1 {
-    font-size: 30px;
+    font-size: 22px;
+    font-weight: 600;
     margin: 0;
 }
 
 .back-link {
-    color: #00D4AA;
+    color: var(--accent);
     text-decoration: none;
-    font-size: 18px;
+    font-size: 16px;
 }
 
 .back-link:hover {
     text-decoration: underline;
 }
 
+/* ---------- 顶部提示 ---------- */
 .hint {
-    color: #9AA3B2;
-    margin: 8px 0 20px;
+    max-width: 760px;
+    margin: 14px auto 4px;
+    padding: 0 20px;
+    color: var(--text-2);
+    font-size: 13px;
 }
 
+/* ---------- 分组：标题在外、卡片在内 ---------- */
 .group {
-    background: #1B1F26;
-    border: 1px solid #2A2F38;
-    border-radius: 10px;
-    padding: 16px 18px 20px;
-    margin-bottom: 20px;
+    max-width: 760px;
+    margin: 22px auto 0;
+    padding: 0 20px;
 }
 
 .group h2 {
-    font-size: 22px;
-    margin: 0 0 14px;
-    color: #00D4AA;
+    margin: 0 0 8px 4px;
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: 0.02em;
+    color: var(--text-2);
 }
 
+/* 注意：类名不能叫 .card —— app.css 里 .card 是播放页新闻卡片（display:flex），会撞样式 */
+.settings-card {
+    background: var(--card);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+/* ---------- 行：label 左、控件右对齐 ---------- */
 .row {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 10px;
-    padding: 8px 0;
-    border-top: 1px solid #232833;
+    justify-content: flex-end;
+    column-gap: 10px;
+    row-gap: 6px;
+    min-height: 46px;
+    padding: 10px 16px;
+    border-top: 0.5px solid var(--sep);
 }
 
-.row:first-of-type {
+.settings-card > .row:first-child {
     border-top: none;
 }
 
@@ -73,134 +117,234 @@
 }
 
 .row > label {
-    flex: 0 0 220px;
-    color: #C7CED9;
+    margin-right: auto;
+    font-size: 16px;
+    color: var(--text);
 }
 
 .row .desc,
+.settings-card > p.desc,
 p.desc {
-    flex: 1 1 260px;
-    color: #8A93A2;
-    font-size: 14px;
+    flex: 1 1 100%;
     margin: 0;
+    color: var(--text-2);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.settings-page > p.desc {
+    max-width: 760px;
+    margin: 8px auto 0;
+    padding: 0 20px;
 }
 
 .row .value {
-    color: #8A93A2;
+    color: var(--text-2);
     font-size: 14px;
-    font-family: Consolas, monospace;
+    font-family: Consolas, "Cascadia Mono", monospace;
+}
+
+.row .desc code {
+    background: var(--card-2);
+    border-radius: 4px;
+    padding: 0 5px;
+    font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: 12px;
+    color: #D6D6D8;
+}
+
+/* ---------- 控件：iOS 风格（无边框、值右对齐、聚焦整行高亮） ---------- */
+.row:focus-within {
+    background: rgba(255, 255, 255, 0.05);
 }
 
 input[type="text"],
 input[type="password"],
 input[type="number"],
 select {
-    background: #0F1216;
-    color: #ECECEC;
-    border: 1px solid #38404D;
-    border-radius: 6px;
-    padding: 6px 8px;
+    background: transparent;
+    color: var(--text);
+    border: none;
+    border-radius: 8px;
+    padding: 4px 4px;
     font-size: 16px;
-    min-width: 140px;
+    font-family: inherit;
+    text-align: right;
+    min-width: 0;
 }
 
-input[type="text"] {
-    flex: 1 1 260px;
+input[type="text"]:focus,
+input[type="password"]:focus,
+input[type="number"]:focus,
+select:focus {
+    outline: none;
+    background: var(--card-2);
+    box-shadow: 0 0 0 1px var(--accent) inset;
+}
+
+input[type="text"],
+input[type="password"] {
+    flex: 1 1 240px;
+    max-width: 420px;
 }
 
 input[type="number"] {
-    width: 110px;
+    flex: 0 0 96px;
+    width: 96px;
+}
+
+select {
     flex: 0 0 auto;
+    max-width: 62%;
+    text-align: right;
+    text-align-last: right;
+    appearance: none;
+    -webkit-appearance: none;
+    padding-right: 22px;
+    background-image: linear-gradient(45deg, transparent 50%, var(--text-2) 50%),
+                      linear-gradient(135deg, var(--text-2) 50%, transparent 50%);
+    background-position: right 10px center, right 5px center;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+}
+
+select option {
+    background: var(--card);
+    color: var(--text);
+}
+
+input::placeholder {
+    color: #5E5E63;
+}
+
+/* 开关（复选框画成 iOS 开关） */
+input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    flex: 0 0 auto;
+    position: relative;
+    width: 51px;
+    height: 31px;
+    margin: 0;
+    border-radius: 999px;
+    background: #39393D;
+    transition: background 200ms ease;
+    cursor: pointer;
+}
+
+input[type="checkbox"]::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 27px;
+    height: 27px;
+    border-radius: 50%;
+    background: #FFFFFF;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+    transition: transform 200ms ease;
+}
+
+input[type="checkbox"]:checked {
+    background: var(--accent);
+}
+
+input[type="checkbox"]:checked::after {
+    transform: translateX(20px);
+}
+
+input[type="checkbox"]:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+/* 颜色选择：做成小色块 */
+input[type="color"] {
+    flex: 0 0 auto;
+    width: 48px;
+    height: 30px;
+    padding: 0;
+    border: 0.5px solid var(--sep);
+    border-radius: 8px;
+    background: transparent;
 }
 
 textarea {
     display: block;
     width: 100%;
-    box-sizing: border-box;
     margin: 8px 0 4px;
-    background: #0F1216;
-    color: #ECECEC;
-    border: 1px solid #38404D;
-    border-radius: 6px;
-    padding: 8px 10px;
+    background: var(--card-2);
+    color: var(--text);
+    border: none;
+    border-radius: 10px;
+    padding: 10px 12px;
     font-family: Consolas, "Cascadia Mono", monospace;
-    font-size: 15px;
+    font-size: 14px;
     line-height: 1.5;
     resize: vertical;
 }
 
-textarea::placeholder {
-    color: #5E6878;
-}
-
 textarea:focus {
     outline: none;
-    border-color: #00D4AA;
+    box-shadow: 0 0 0 1px var(--accent) inset;
 }
 
-.row .desc code {
-    background: #0F1216;
-    border: 1px solid #2A2F38;
-    border-radius: 4px;
-    padding: 0 5px;
-    font-family: Consolas, "Cascadia Mono", monospace;
-    font-size: 13px;
-    color: #C7CED9;
-}
-
-input[type="color"] {
-    width: 56px;
-    height: 32px;
-    padding: 0;
-    border: 1px solid #38404D;
-    border-radius: 6px;
-    background: #0F1216;
-}
-
-input[type="checkbox"] {
-    width: 22px;
-    height: 22px;
-    accent-color: #00D4AA;
-}
-
-input[type="checkbox"]:disabled {
-    opacity: 0.5;
-}
-
+/* ---------- 按钮 ---------- */
 button {
-    background: #262C36;
-    color: #ECECEC;
-    border: 1px solid #38404D;
-    border-radius: 6px;
-    padding: 6px 14px;
+    flex: 0 0 auto;
+    background: var(--card-2);
+    color: var(--text);
+    border: none;
+    border-radius: 10px;
+    padding: 8px 16px;
     font-size: 16px;
+    font-family: inherit;
     cursor: pointer;
+    transition: filter 150ms ease;
 }
 
 button:hover:not(:disabled) {
-    background: #303845;
+    filter: brightness(1.25);
 }
 
 button:disabled {
-    opacity: 0.5;
+    opacity: 0.45;
     cursor: default;
 }
 
 button.primary {
-    background: #00A98A;
-    border-color: #00A98A;
-    color: #06231F;
-    font-weight: 700;
+    background: var(--accent);
+    color: #04241E;
+    font-weight: 600;
 }
 
 button.danger {
-    border-color: #7A3A3A;
-    color: #FFB4B4;
+    background: transparent;
+    color: var(--danger);
 }
 
+/* 「取消」用链接实现：直接回看板，未保存的改动随之丢弃 */
+.btn-secondary {
+    flex: 0 0 auto;
+    display: inline-block;
+    background: var(--card-2);
+    color: var(--text);
+    border-radius: 10px;
+    padding: 8px 16px;
+    font-size: 16px;
+    text-decoration: none;
+    cursor: pointer;
+    transition: filter 150ms ease;
+}
+
+.btn-secondary:hover {
+    filter: brightness(1.25);
+}
+
+/* ---------- 关键字列表 ---------- */
 .keyword-list {
     list-style: none;
-    margin: 8px 0;
+    margin: 10px 0 6px;
     padding: 0;
 }
 
@@ -208,7 +352,19 @@ button.danger {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-bottom: 6px;
+    margin-bottom: 8px;
+}
+
+.keyword-list li input[type="text"] {
+    flex: 1 1 auto;
+    max-width: none;
+    text-align: left;
+    background: var(--card-2);
+    padding: 8px 12px;
+}
+
+.keyword-list li button {
+    padding: 8px 12px;
 }
 
 .inline-input {
@@ -216,13 +372,24 @@ button.danger {
     flex-wrap: wrap;
     align-items: center;
     gap: 10px;
+    margin-top: 4px;
 }
 
+.inline-input input[type="text"] {
+    flex: 1 1 200px;
+    max-width: none;
+    text-align: left;
+    background: var(--card-2);
+    padding: 8px 12px;
+}
+
+/* ---------- 状态标签 / 提示块 ---------- */
 .chip {
+    flex: 0 0 auto;
     display: inline-block;
     border-radius: 999px;
     padding: 2px 12px;
-    font-size: 14px;
+    font-size: 13px;
     border: 1px solid transparent;
 }
 
@@ -247,30 +414,57 @@ button.danger {
 .warn-box {
     background: #3A3018;
     border: 1px solid #B08A20;
-    border-radius: 8px;
+    border-radius: 10px;
     color: #FFD98A;
     padding: 10px 14px;
-    margin: 6px 0 10px;
+    margin: 8px 0 10px;
+    font-size: 13px;
 }
 
+/* ---------- 底部操作条（固定在真实视口底部） ---------- */
 .settings-actions {
-    position: sticky;
+    position: fixed;
     bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 5;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 12px;
-    background: #14161A;
-    border-top: 2px solid #2A2F38;
-    padding: 14px 0;
+    gap: 10px;
+    padding: 14px max(20px, calc(50% - 380px));
+    background: rgba(0, 0, 0, 0.9);
+    backdrop-filter: blur(12px);
+    border-top: 0.5px solid var(--sep);
 }
 
-@media (max-width: 720px) {
+.settings-actions button.primary {
+    padding: 10px 22px;
+}
+
+@media (max-width: 640px) {
     .row > label {
         flex: 1 1 100%;
+        margin-right: 0;
+    }
+
+    .row {
+        justify-content: flex-start;
+    }
+
+    input[type="text"],
+    input[type="password"],
+    select {
+        max-width: 100%;
+        flex: 1 1 100%;
+        text-align: left;
+    }
+
+    input[type="number"] {
+        flex: 0 0 auto;
     }
 
     .settings-header h1 {
-        font-size: 24px;
+        font-size: 20px;
     }
 }

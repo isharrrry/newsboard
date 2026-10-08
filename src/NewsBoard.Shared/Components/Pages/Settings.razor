@@ -25,6 +25,7 @@
         <section class="group">
             <h2>API / 采集</h2>
 
+            <div class="settings-card">
             <div class="row">
                 <label for="fetchMode">新闻获取方式</label>
                 <select id="fetchMode" @bind="_edit.FetchMode">
@@ -140,11 +141,13 @@
                 <input id="onlyToday" type="checkbox" @bind="_edit.OnlyTodayNews" />
                 <span class="desc">过滤超过 24 小时的旧闻。</span>
             </div>
+            </div>
         </section>
 
         <section class="group">
             <h2>外观</h2>
 
+            <div class="settings-card">
             <div class="row">
                 <label for="backgroundColor">背景色</label>
                 <input id="backgroundColor" type="color" @bind="_edit.BackgroundColor" />
@@ -220,11 +223,13 @@
                 <label for="showSource">显示新闻来源</label>
                 <input id="showSource" type="checkbox" @bind="_edit.ShowSource" />
             </div>
+            </div>
         </section>
 
         <section class="group">
             <h2>播放 / 语音</h2>
 
+            <div class="settings-card">
             <div class="row">
                 <label for="playbackMode">播放模式</label>
                 <select id="playbackMode" @bind="_edit.PlaybackMode">
@@ -374,11 +379,13 @@
                 <input id="resume" type="checkbox" @bind="_edit.ResumeAcrossRounds" />
                 <span class="desc">单条没播完时，下一轮接着播。</span>
             </div>
+            </div>
         </section>
 
         <section class="group">
             <h2>系统 / 宿主</h2>
 
+            <div class="settings-card">
             <div class="row">
                 <label for="keepScreenOn">保持屏幕常亮</label>
                 <input id="keepScreenOn" type="checkbox" @bind="_edit.KeepScreenOn" />
@@ -424,11 +431,12 @@
                 <button type="button" @onclick="BlackoutSelfTestAsync" disabled="@_blackoutTesting">@(_blackoutTesting ? "自检中…" : "黑屏 2 秒")</button>
                 <span class="desc">试一下平台屏幕控制：全黑 2 秒后自动恢复，不改配置。</span>
             </div>
+            </div>
         </section>
 
         <div class="settings-actions">
             <button type="button" class="primary" @onclick="SaveConfigAsync">保存</button>
-            <button type="button" @onclick="Cancel">取消</button>
+            <a class="btn-secondary" href="/">取消</a>
             <button type="button" @onclick="RestoreDefaults">恢复默认</button>
             @if (_message is not null)
             {
@@ -825,17 +833,6 @@
         {
             _error = $"保存失败：{ex.Message}";
         }
-    }
-
-    private void Cancel()
-    {
-        _edit = Store.Current.Clone();
-        DetachLists(_edit);
-        _rssFallbackText = string.Join(Environment.NewLine, _edit.RssFallbackTemplates);
-        _apiKeyInput = "";
-        _newKeyword = "";
-        _message = "已放弃未保存的修改";
-        _error = null;
     }
 
     private void RestoreDefaults()

@@ -78,3 +78,7 @@ Android 工具链在 **`D:\Android`**：JDK 17 于 `D:\Android\jdk-17`、Android
 - 摘要默认 **70 字**、卡片默认**不显示标题**（`AppConfig.ShowTitle=false`）；两条通道（RSS 提炼 / 联网搜索）都要过 `SummaryText.Normalize` 本地二次校验（上限 1.2 倍 → 截到最后一个句号），因为模型实测会超字数。实测（2026-10-08，默认 70）：RSS 提炼 53–66 字、联网搜索 72–84 字。
 - **灭屏期间点一下屏幕即唤醒**：`.blackout` 遮罩带 `@onclick="WakeAsync"`（`PlaybackEngine.WakeAsync()` → 立刻退出灭屏、回到显示、从当前条重新起算窗口）。灭屏期间控制条是隐藏的（`.board-controls--hidden`），所以点击一定落在遮罩上；实测亮度 58.4 → 打断 0 → 点一下 58.4。
 - MAUI(Windows) 的窗口标题来自 `ApplicationTitle`（「新闻看板」）；播放页自身不再输出任何标题文字，关键字标签只在页面顶部显示**一条**（`ShowKeywordLabel` 控制）。
+- **设置页排版（iOS 分组列表）**：`.settings-page` 自己就是滚动容器（`height:100%` + `overflow-y:auto`；app.css 把 `html/body` 设成 `overflow:hidden`，不能指望页面级滚动）；顶部栏与底部操作条用 `position:fixed` 贴真实视口（原先 `sticky` 会浮在页面中间）。
+  **类名不能叫 `.card`** —— `app.css` 里的 `.card` 是播放页新闻卡片（`display:flex`），设置页复用它会让所有行挤成一行（实测踩过，排错靠 `HtmlRenderer` 导出真实 HTML + Edge `--headless --dump-dom` 读计算样式定位）。设置页分组容器固定叫 `.settings-card`。
+  回归测试：`Sa2SettingsPageTests.Settings_UsesGroupedCardLayout_AndCancelIsBackLink`（断言用 `.settings-card`、不得出现 `class="card"`、取消是 `href="/"` 链接）。
+- 在 WebView2 宿主里做界面验证时：截图用 `PrintWindow` 可用；但**注入鼠标滚轮/按键前必须先在被测窗口内容区点一下拿焦点**，否则事件不会送达 WebView2（实测：不点则滚轮完全无效，点了则 `scrollTop` 从 0 正常增长）。
