@@ -112,5 +112,8 @@ Android 工具链在 **`D:\Android`**：JDK 17 于 `D:\Android\jdk-17`、Android
   | MAUI(Windows) | 同上（**与 WPF 完全共用**） | 同上 | 同上（同一文件，两宿主密钥互通） |
   | MAUI(Android) | app 私有目录（`Environment.SpecialFolder.LocalApplicationData`，包名 `com.newsboard.app`） | 同左 | MAUI `SecureStorage`（Android Keystore 加密，非明文文件） |
   Windows 侧自启写在 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`。
+- **数据目录可隔离 + 覆盖前自动留备份**：`NewsBoardDataDirectory.Resolve()`（`ConfigStore` 与 `NewsRepository` 共用）在环境变量 **`NEWSBOARD_DATA_DIR`** 非空时用它当数据目录，否则 `%LOCALAPPDATA%\NewsBoard`；`ConfigStore` 每次覆盖写入前把上一版留成 `config.json.bak`。
+  **血的教训（2026-10-08）**：4 个 e2e 脚本（`.tmp\e2e.ps1` / `e2e-final.ps1` / `image.ps1` / `scroll.ps1`）直接把测试配置 `Copy-Item` 成用户真实的 `config.json`，把用户 6 个关键字覆盖成「武汉/AI」，而且那份 `config-backup.json` 是在覆盖**之后**复制的（MD5 与被覆盖文件相同）⇒ 等于没备份、从未回滚。
+  **纪律：任何自动化/探针脚本要跑真实抓取，必须 `$env:NEWSBOARD_DATA_DIR=<.tmp 下隔离目录>`，绝不写真实数据目录。** 现场证据留在 `.tmp\polluted-config-2026-10-08.json`。
 - **时间敏感测试的偶发红（已修稳）**：`Sa3PlaybackEngineTests` / `PlaybackControlTests` 用 `ScaledClock`（**100 倍**）跑，`WaitUntilAsync` 轮询 5ms 真实时间 ＝ 0.5s 引擎时间，机器一忙就会「错过窗口」：`NextAsync_SkipsToFollowingItem` 断言 `CurrentIndex==0` 时首条已播完、`Show60s_ThenBlackout300s...` 贴 59s 检查时实际已过 60s、`SpeechCompletion_IsTheItemClock` 的 5s 容差被调度抖动吃掉、`显示期间点一下屏幕…` 在 `SelectIndex`→`PlayItemAsync` 之间取到前一个时间戳（差 <1ms）。
   修法：首条摘要写长（拉到 ~40 字）、检查点往窗口里侧挪（59s→55s、365s→362s）、容差 5s→20s、取基线前 `Task.Delay(250)`。**修后连续 5 次全量 220/220 全绿**（修前 4 次里 3 次红）。

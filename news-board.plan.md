@@ -511,5 +511,29 @@ stateDiagram-v2
 
 > **本轮新增测试**：SA7 5 条（设置页新控件与派生开关联动）、SA9 33 条（均衡/解析/门槛/保留/提示词）、本人 11 条（配图四级兜底 9 + 补图 2）。
 
+## 13. 事故与修复：验证脚本覆盖了用户配置（2026-10-08 15:55）
+
+**现象**：用户报「我之前给你好多关键字怎么只剩下武汉和AI」。
+
+**证据链（全部可复核）**：
+
+| 证据 | 内容 |
+|---|---|
+| 文件同一性 | 真实 `%LOCALAPPDATA%\NewsBoard\config.json` 与 `.tmp\e2e-final-config.json` 的 MD5 **完全相同**（`8344DD9513DC3363807797E439D966D1`） |
+| 覆盖动作 | `.tmp\e2e-final.ps1:19` `Copy-Item ".tmp\e2e-final-config.json" (Join-Path $appDir "config.json") -Force`；同类脚本共 4 个：`e2e.ps1` / `e2e-final.ps1` / `image.ps1` / `scroll.ps1`，全部直接写真实数据目录 |
+| 「备份」无效 | `.tmp\config-backup.json` 与被覆盖后的文件 MD5 相同 ⇒ 备份是在覆盖**之后**复制的，从未具备回滚能力 |
+| 值来源 | `.tmp\e2e.ps1` 里手写 `"Keywords": ["武汉"]`、`"FetchMode": "RssThenSummarize"`、`"ShowDurationSeconds": 15`、`"SpeechEnabled": true` 等 |
+
+**结论**：不是程序丢配置，是**我的自动化把用户配置当测试夹具覆盖了**。用户原始 6 个关键字（§4.1：武汉/中国/美国/台湾/国际/AI）被换成「武汉/AI」，同时被写入测试脚手架值：`FetchMode=RssThenSummarize`、`SpeechEnabled=false`、`ShowDurationSeconds=45`、`BlackoutDurationSeconds=15`、`AiMinIntervalMinutes=0`、`ClockFontSizeSp=44`、`ClockFontFamily=Microsoft YaHei`。
+
+**修复**：
+
+1. **恢复用户配置**（现场先备份到 `.tmp\polluted-config-2026-10-08.json` 与 `.tmp\polluted-news-2026-10-08.json`）：关键字回到 6 个；`FetchMode=Auto`、`SpeechEnabled=true`、`ShowDurationSeconds=60`、`BlackoutDurationSeconds=300`、`AiMinIntervalMinutes=10`、`ClockFontSizeSp=32`、`ClockFontFamily=""`；按旧关键字抓的 22 条旧缓存删除，让应用重抓。
+2. **产品级防复发**：新增 `NewsBoardDataDirectory.Resolve()`（`ConfigStore` 与 `NewsRepository` 共用此唯一解析点）—— 环境变量 **`NEWSBOARD_DATA_DIR`** 非空即覆盖数据目录；`ConfigStore.WriteToDisk` 覆盖前把上一版留成 `config.json.bak`。
+3. **纪律**（已写进 AGENTS.md）：自动化/探针脚本一律 `$env:NEWSBOARD_DATA_DIR=<.tmp 下隔离目录>`，禁止写真实数据目录。
+
+**验证**：恢复后启动 MAUI(Windows) 一轮 → 缓存 15 条，关键字分布 **武汉 3 / 中国 2 / 美国 2 / 台湾 3 / 国际 2 / AI 3**（6 个关键字全部命中真实新闻），画面标签显示「中国」（不再回落成频道名「中新网即时新闻」），截图 `.tmp\kw-restored.png`；`dotnet build NewsBoard.slnx` 三头 **0 警告 0 错误**，`dotnet test` **222/222**（新增 2 条：覆盖写留 `.bak` 且可回滚、`NEWSBOARD_DATA_DIR` 优先于 LocalAppData）。
+
+
 
 

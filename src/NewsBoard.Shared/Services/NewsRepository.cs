@@ -26,9 +26,7 @@ public sealed class NewsRepository : INewsRepository
 
     public NewsRepository(string? directory = null)
     {
-        Directory = directory ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "NewsBoard");
+        Directory = string.IsNullOrWhiteSpace(directory) ? NewsBoardDataDirectory.Resolve() : directory;
         FilePath = Path.Combine(Directory, "news.json");
     }
 

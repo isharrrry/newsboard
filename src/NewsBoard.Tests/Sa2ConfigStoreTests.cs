@@ -504,6 +504,53 @@ public sealed class Sa2ConfigStoreTests : IDisposable
         Directory.Delete(dir2, true);
     }
 
+    [Fact]
+    public async Task SaveAsync_覆盖已有配置时留下上一版备份()
+    {
+        var store = NewStore();
+        await store.LoadAsync();
+        store.Current.Keywords = ["武汉", "中国", "美国", "台湾", "国际", "AI"];
+        await store.SaveAsync(store.Current);
+        Assert.False(File.Exists(ConfigFile + ".bak"));
+
+        store.Current.Keywords = ["武汉"];
+        await store.SaveAsync(store.Current);
+
+        var backup = ConfigFile + ".bak";
+        Assert.True(File.Exists(backup));
+        var restored = NewStore();
+        await restored.LoadAsync();
+        Assert.Equal(["武汉"], restored.Current.Keywords);
+
+        File.Copy(backup, ConfigFile, overwrite: true);
+        var rolledBack = NewStore();
+        await rolledBack.LoadAsync();
+        Assert.Equal(["武汉", "中国", "美国", "台湾", "国际", "AI"], rolledBack.Current.Keywords);
+    }
+
+    [Fact]
+    public void 数据目录_环境变量非空时优先于默认LocalAppData()
+    {
+        var previous = Environment.GetEnvironmentVariable(NewsBoardDataDirectory.OverrideVariableName);
+        var custom = Path.Combine(Path.GetTempPath(), "nb-env-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Environment.SetEnvironmentVariable(NewsBoardDataDirectory.OverrideVariableName, custom);
+            Assert.Equal(custom, NewsBoardDataDirectory.Resolve());
+            Assert.Equal(custom, new ConfigStore(new MemorySecretStore()).StorageDirectory);
+            Assert.Equal(custom, new NewsRepository().Directory);
+
+            Environment.SetEnvironmentVariable(NewsBoardDataDirectory.OverrideVariableName, "   ");
+            Assert.Equal(
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NewsBoard"),
+                NewsBoardDataDirectory.Resolve());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(NewsBoardDataDirectory.OverrideVariableName, previous);
+        }
+    }
+
     private sealed class MemorySecretStore : ISecretStore
     {
         private readonly Dictionary<string, string> _values = [];
