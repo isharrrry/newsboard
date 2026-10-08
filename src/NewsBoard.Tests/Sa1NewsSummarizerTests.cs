@@ -81,7 +81,7 @@ public class Sa1NewsSummarizerTests
 
         var summary = Assert.Single(items).Summary;
         Assert.Equal("一二三四五六七八九十。", summary);
-        Assert.True(summary.Length <= (int)(config.SummaryMaxChars * 1.4));
+        Assert.True(summary.Length <= (int)(config.SummaryMaxChars * 1.2));
     }
 
     [Fact]

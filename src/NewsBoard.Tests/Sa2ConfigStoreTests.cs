@@ -41,7 +41,7 @@ public sealed class Sa2ConfigStoreTests : IDisposable
         Assert.Equal(3, store.Current.SearchMaxUses);
         Assert.Equal(new[] { "武汉", "中国", "美国", "台湾", "国际", "AI" }, store.Current.Keywords);
         Assert.Equal(5, store.Current.FetchIntervalMinutes);
-        Assert.Equal(120, store.Current.SummaryMaxChars);
+        Assert.Equal(70, store.Current.SummaryMaxChars);
         Assert.Equal(10, store.Current.AiMinIntervalMinutes);
         Assert.Equal("https://www.chinanews.com.cn/rss/scroll-news.xml", store.Current.RssTemplate);
         Assert.Equal(

@@ -123,12 +123,14 @@ body {
     letter-spacing: 0.02em;
 }
 
-/* 黑屏：全屏遮罩，App 层黑屏（亮度归零由 IScreenController 负责） */
+/* 黑屏：全屏遮罩，App 层黑屏（亮度归零由 IScreenController 负责）。
+   点一下即恢复显示（PlaybackEngine.WakeAsync）。 */
 .blackout {
     position: absolute;
     inset: 0;
     background: #000;
     z-index: 10;
+    cursor: pointer;
 }
 
 /* 播放控制条：横排图标按钮（上一条 / 下一条 / 打开原文 / 打断 / 设置） */

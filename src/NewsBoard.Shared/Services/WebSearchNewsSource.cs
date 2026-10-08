@@ -87,7 +87,7 @@ public sealed class WebSearchNewsSource : INewsSource
         builder.AppendLine($"请针对关键字「{keyword}」联网检索当天的新闻，挑选最新 {config.ItemsPerKeyword} 篇。");
         builder.AppendLine("硬性要求：");
         builder.AppendLine("1. 只依据联网检索到的真实结果，严禁编造标题、链接或内容。");
-        builder.AppendLine($"2. 每条摘要不超过 {config.SummaryMaxChars} 个汉字；写 2–3 句连贯的话，先交代「谁 + 做了什么」，再补「关键数字或结果」，最后补「影响或后续」，把检索到的事实说完整，不要只写一句概括。");
+        builder.AppendLine($"2. 每条摘要不超过 {config.SummaryMaxChars} 个汉字（写到 {config.SummaryMaxChars - 15}–{config.SummaryMaxChars} 字最好）；写 1–2 句连贯的话：先用一句交代「谁 + 做了什么」，再补一句关键的「数字或结果」，把检索到的最重要事实说清楚，不要复述标题，也不要写成标题的扩写。");
         builder.AppendLine("3. 用陈述语气直接叙述事实，不要写「本文」「据报道」「摘要」等字样，不要复述标题。");
         builder.AppendLine("4. 只输出一个严格的 JSON 数组，不要任何解释文字或 Markdown 围栏，格式为：");
         builder.AppendLine($"[{{\"title\":\"标题\",\"summary\":\"摘要\",\"url\":\"原文链接\",\"keyword\":\"{keyword}\"}}]");

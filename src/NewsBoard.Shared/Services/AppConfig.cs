@@ -32,7 +32,7 @@ public sealed class AppConfig
     public List<string> Keywords { get; set; } = ["武汉", "中国", "美国", "台湾", "国际", "AI"];
     public int ItemsPerKeyword { get; set; } = 3;
     public int FetchIntervalMinutes { get; set; } = 5;
-    public int SummaryMaxChars { get; set; } = 120;
+    public int SummaryMaxChars { get; set; } = 70;
     public int AiMinIntervalMinutes { get; set; } = 10;
     /// <summary>RSS 源模板。含 <c>{q}</c> 时按关键字各抓一次（搜索型源）；不含则视为共享频道源，只抓一次。</summary>
     public string RssTemplate { get; set; } = "https://www.chinanews.com.cn/rss/scroll-news.xml";

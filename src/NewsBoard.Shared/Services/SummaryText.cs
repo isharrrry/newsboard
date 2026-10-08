@@ -6,7 +6,7 @@ namespace NewsBoard.Shared.Services;
 public static class SummaryText
 {
     /// <summary>
-    /// 压平换行、去首尾空白；超过 <paramref name="maxChars"/> 的 1.4 倍时截断到最后一个句号
+    /// 压平换行、去首尾空白；超过 <paramref name="maxChars"/> 的 1.2 倍时截断到最后一个句号
     /// （尽量不切断句子），没有句号则硬截断。
     /// </summary>
     public static string Normalize(string? text, int maxChars)
@@ -22,7 +22,7 @@ public static class SummaryText
             return string.Empty;
         }
 
-        var limit = maxChars > 0 ? (int)(maxChars * 1.4) : cleaned.Length;
+        var limit = maxChars > 0 ? (int)(maxChars * 1.2) : cleaned.Length;
         if (cleaned.Length <= limit)
         {
             return cleaned;

@@ -6,21 +6,21 @@ using Xunit;
 
 namespace NewsBoard.Tests;
 
-/// <summary>摘要长度策略：默认更长（120 字）、提示词要求写成 2–3 句、超长仍被本地截断。</summary>
+/// <summary>摘要长度策略：默认 70 字、提示词要求写成 1–2 句、超长仍被本地截断（上限 1.2 倍）。</summary>
 public class SummaryLengthTests
 {
     [Fact]
-    public void 默认配置_摘要上限120字且不显示标题()
+    public void 默认配置_摘要上限70字且不显示标题()
     {
         var config = new AppConfig();
 
-        Assert.Equal(120, config.SummaryMaxChars);
+        Assert.Equal(70, config.SummaryMaxChars);
         Assert.False(config.ShowTitle);
         Assert.True(config.ShowKeywordLabel);
     }
 
     [Fact]
-    public async Task 提炼提示词_按配置字数要求写2到3句而非一句话()
+    public async Task 提炼提示词_按配置字数要求写1到2句而非一句话()
     {
         var handler = new FakeHttpHandler(_ => FakeHttp.Ok(OpenAiResponse("[]")));
         var summarizer = new NewsSummarizer(handler.CreateClient());
@@ -39,15 +39,15 @@ public class SummaryLengthTests
 
         Assert.NotNull(prompt);
         Assert.Contains("200", prompt!);
-        Assert.Contains("2–3 句", prompt!);
+        Assert.Contains("1–2 句", prompt!);
     }
 
     [Fact]
-    public async Task 模型返回超长摘要_按句号截断到上限的14倍以内()
+    public async Task 模型返回超长摘要_按句号截断到上限的12倍以内()
     {
         var url = "https://example.com/long";
         var longSummary = string.Concat(Enumerable.Repeat("这是完整事实句。", 40));
-        Assert.True(longSummary.Length > 120 * 1.4);
+        Assert.True(longSummary.Length > 120 * 1.2);
 
         var payload = JsonSerializer.Serialize(new[]
         {
@@ -61,7 +61,7 @@ public class SummaryLengthTests
         var items = await summarizer.SummarizeAsync("武汉", raw, config);
 
         var item = Assert.Single(items);
-        Assert.True(item.Summary.Length <= 120 * 1.4, $"摘要应被截断，实际 {item.Summary.Length} 字");
+        Assert.True(item.Summary.Length <= 120 * 1.2, $"摘要应被截断，实际 {item.Summary.Length} 字");
         Assert.EndsWith("。", item.Summary);
         Assert.True(item.Summary.Length > 100, "截断不应退化成一句话");
     }
@@ -71,7 +71,7 @@ public class SummaryLengthTests
     {
         var url = "https://example.com/ok";
         var summary = "中国人民银行连续第23个月增持黄金，10月末黄金储备环比继续上升。分析人士认为，在全球央行普遍增持的背景下，这一趋势短期难以逆转。";
-        Assert.True(summary.Length <= 120);
+        Assert.True(summary.Length <= 70);
 
         var payload = JsonSerializer.Serialize(new[] { new { url, summary } });
         var handler = new FakeHttpHandler(_ => FakeHttp.Ok(OpenAiResponse(payload)));
@@ -113,7 +113,7 @@ public class SummaryLengthTests
 
         var item = Assert.Single(raw);
         Assert.NotNull(item.PreSummarized);
-        Assert.True(item.PreSummarized!.Length <= 120 * 1.4, $"摘要应被截断，实际 {item.PreSummarized.Length} 字");
+        Assert.True(item.PreSummarized!.Length <= 120 * 1.2, $"摘要应被截断，实际 {item.PreSummarized.Length} 字");
         Assert.EndsWith("。", item.PreSummarized);
     }
 

@@ -14,7 +14,8 @@
 <div class="board" style="@BoardStyle">
     @if (Engine.Phase == PlaybackPhase.Blackout)
     {
-        <div class="blackout" aria-hidden="true"></div>
+        <div class="blackout" role="button" tabindex="0" aria-label="点一下恢复显示"
+             title="点一下恢复显示" @onclick="WakeAsync"></div>
     }
 
     <div class="board-top">
@@ -241,6 +242,8 @@
     private Task NextAsync() => Engine.NextAsync();
 
     private Task InterruptAsync() => Engine.InterruptAsync();
+
+    private Task WakeAsync() => Engine.WakeAsync();
 
     private async Task OpenSourceAsync()
     {

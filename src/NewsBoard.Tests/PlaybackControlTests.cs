@@ -126,6 +126,44 @@ public class PlaybackControlTests
     }
 
     [Fact]
+    public async Task 灭屏期间点一下屏幕_立刻恢复显示不必等满黑屏时长()
+    {
+        var b = Build(blackoutSeconds: 30);
+        await b.Engine.StartAsync();
+        await WaitUntilAsync(() => b.Engine.Current is not null);
+
+        await b.Engine.InterruptAsync();
+        await WaitUntilAsync(() => b.Engine.Phase == PlaybackPhase.Blackout, seconds: 2);
+
+        await b.Engine.WakeAsync();
+
+        await WaitUntilAsync(() => b.Engine.Phase == PlaybackPhase.Show, seconds: 2);
+        Assert.Equal(PlaybackPhase.Show, b.Engine.Phase);
+        Assert.NotNull(b.Engine.Current);
+        Assert.Equal("1", b.Engine.Current!.Id);
+        Assert.True(b.Screen.BlackoutOffCount >= 1, "唤醒后必须退出灭屏");
+        await b.Engine.StopAsync();
+    }
+
+    [Fact]
+    public async Task 显示期间点一下屏幕_不切条也不重新起算窗口()
+    {
+        var b = Build(showSeconds: 30);
+        await b.Engine.StartAsync();
+        await WaitUntilAsync(() => b.Engine.Current is not null);
+        var itemId = b.Engine.Current!.Id;
+        var startedAt = b.Engine.CurrentStartedAt;
+
+        await b.Engine.WakeAsync();
+        await Task.Delay(300);
+
+        Assert.Equal(PlaybackPhase.Show, b.Engine.Phase);
+        Assert.Equal(itemId, b.Engine.Current!.Id);
+        Assert.Equal(startedAt, b.Engine.CurrentStartedAt);
+        await b.Engine.StopAsync();
+    }
+
+    [Fact]
     public async Task 首轮无缓存时_抓到新闻立刻开播而不必等满一个窗口()
     {
         var b = Build(showSeconds: 60, items: []);

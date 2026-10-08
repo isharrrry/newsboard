@@ -46,6 +46,7 @@ public sealed class PlaybackEngine : IAsyncDisposable
     private volatile int _direction = 1;
     private volatile bool _interruptRequested;
     private volatile bool _forcedBlackout;
+    private volatile bool _wakeRequested;
     private CancellationTokenSource? _speakCts;
 
     // ---- 一轮（SHOW 窗口）内的时间账 ----
@@ -172,6 +173,22 @@ public sealed class PlaybackEngine : IAsyncDisposable
     private Task MoveAsync(int direction)
     {
         _direction = direction;
+        RequestAdvance();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// 灭屏期间点一下屏幕：立刻结束灭屏、回到显示，并从当前条重新起算本轮窗口。
+    /// 显示期间调用不做任何事（不会切条、也不会提前结束窗口）。
+    /// </summary>
+    public Task WakeAsync()
+    {
+        if (_phase != PlaybackPhase.Blackout)
+        {
+            return Task.CompletedTask;
+        }
+
+        _wakeRequested = true;
         RequestAdvance();
         return Task.CompletedTask;
     }
@@ -547,6 +564,7 @@ public sealed class PlaybackEngine : IAsyncDisposable
     {
         // 黑屏期间再按「打断」不当作一次新打断（否则会把黑屏等待也打断掉）
         _interruptRequested = false;
+        _wakeRequested = false;
         _phase = PlaybackPhase.Blackout;
         _inQuietHours = IsQuietHours(config.QuietHours, _clock.Now);
         Notify();
@@ -560,10 +578,25 @@ public sealed class PlaybackEngine : IAsyncDisposable
             return;
         }
 
+        // 点屏幕唤醒：黑屏等待提前结束，并清掉切换信号，避免被当成「手动切条」
+        ConsumeWake();
+
         await _screen.SetBlackoutAsync(false).ConfigureAwait(false);
         _phase = PlaybackPhase.Show;
         _inQuietHours = IsQuietHours(config.QuietHours, _clock.Now);
         Notify();
+    }
+
+    private bool ConsumeWake()
+    {
+        if (!_wakeRequested)
+        {
+            return false;
+        }
+
+        _wakeRequested = false;
+        _advanceRequested = false;
+        return true;
     }
 
     private async Task WaitForWindowEndAsync(CancellationToken token)
