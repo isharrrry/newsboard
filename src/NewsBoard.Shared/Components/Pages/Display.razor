@@ -1,0 +1,246 @@
+@page "/"
+@using NewsBoard.Shared.Components.Shared
+@implements IAsyncDisposable
+@inject PlaybackEngine Engine
+@inject INewsRepository Repository
+@inject IConfigProvider ConfigProvider
+@inject IJSRuntime JS
+
+<PageTitle>新闻看板</PageTitle>
+
+<div class="board" style="@BoardStyle">
+    @if (Engine.Phase == PlaybackPhase.Blackout)
+    {
+        <div class="blackout" aria-hidden="true"></div>
+    }
+
+    <div class="board-top">
+        @if (Config.ShowKeywordLabel && CurrentItem is not null)
+        {
+            <span class="board-keyword" style="@KeywordStyle">@CurrentItem.Keyword</span>
+        }
+        @if (Config.ShowClock)
+        {
+            <span class="board-clock" style="@ClockStyle">@_clockText</span>
+        }
+    </div>
+
+    <div class="board-viewport" id="@ViewportId">
+        <div class="board-content" style="@ContentStyle">
+            @if (CurrentItem is not null)
+            {
+                <NewsCard Item="CurrentItem" Config="Config" />
+            }
+            else
+            {
+                <div class="board-empty" style="@ContentStyle">正在获取新闻…</div>
+            }
+        </div>
+    </div>
+
+    <div class="board-bottom">
+        @if (Config.ShowSource && CurrentItem is not null && !string.IsNullOrWhiteSpace(CurrentItem.Source))
+        {
+            <span class="board-source" style="@ClockStyle">@CurrentItem.Source</span>
+        }
+    </div>
+
+    <a class="board-gear" href="settings" title="设置">&#9881;</a>
+</div>
+
+@code {
+    private const string ViewportId = "board-viewport";
+    private const double ScrollFinishMs = 500;
+
+    private readonly SemaphoreSlim _jsGate = new(1, 1);
+    private AppConfig Config => ConfigProvider.Current;
+    private NewsItem? CurrentItem => Engine.Current;
+    private string _clockText = "";
+    private string? _scrolledItemId;
+    private bool _scrollActive;
+    private PlaybackPhase _lastPhase = PlaybackPhase.Show;
+    private Timer? _clockTimer;
+
+    private string BoardStyle
+        => $"background-color:{Config.BackgroundColor};color:{Config.ForegroundColor};"
+           + $"padding:{Math.Max(0, Config.PagePaddingPx)}px";
+
+    private string ContentStyle
+        => $"color:{Config.ForegroundColor};font-size:{Sp(Config.FontSizeSp)};font-weight:{Weight};"
+           + $"line-height:{Config.LineHeight.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)};"
+           + $"text-align:{Align}";
+
+    private string KeywordStyle => $"color:{Config.AccentColor};font-size:{Sp(Config.KeywordLabelFontSizeSp)}";
+
+    private string ClockStyle => $"color:{Config.AccentColor};font-size:{Sp(Math.Max(14, Config.KeywordLabelFontSizeSp - 6))}";
+
+    private string Align => Config.TextAlign switch
+    {
+        TextAlignOption.Left => "left",
+        TextAlignOption.Right => "right",
+        _ => "center"
+    };
+
+    private string Weight => string.IsNullOrWhiteSpace(Config.FontWeight) ? "Bold" : Config.FontWeight;
+
+    private static string Sp(int value)
+        => (Math.Max(1, value) * 0.0625).ToString("0.####", System.Globalization.CultureInfo.InvariantCulture) + "rem";
+
+    protected override async Task OnInitializedAsync()
+    {
+        Engine.StateChanged += OnEngineStateChanged;
+        Repository.Changed += OnRepositoryChanged;
+        ConfigProvider.Changed += OnConfigChanged;
+
+        _clockText = DateTimeOffset.Now.ToString("HH:mm:ss");
+        _clockTimer = new Timer(_ => _ = RefreshClockAsync(), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+
+        await Repository.LoadAsync();
+        await Engine.StartAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await SyncScrollAsync();
+    }
+
+    private void OnEngineStateChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private void OnRepositoryChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private void OnConfigChanged(AppConfig config) => _ = InvokeAsync(StateHasChanged);
+
+    private async Task RefreshClockAsync()
+    {
+        try
+        {
+            await InvokeAsync(() =>
+            {
+                _clockText = DateTimeOffset.Now.ToString("HH:mm:ss");
+                StateHasChanged();
+            });
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
+    /// <summary>溢出测量 + 滚动联动（§5.2 / §5.3）。</summary>
+    private async Task SyncScrollAsync()
+    {
+        var item = CurrentItem;
+        var phase = Engine.Phase;
+        var phaseChanged = phase != _lastPhase;
+        _lastPhase = phase;
+
+        bool locked;
+        try
+        {
+            locked = _jsGate.Wait(0);
+        }
+        catch (ObjectDisposedException)
+        {
+            return;
+        }
+
+        if (!locked)
+        {
+            return;
+        }
+
+        try
+        {
+            if (item is null)
+            {
+                _scrolledItemId = null;
+                return;
+            }
+
+            // 条目切换（或窗口到点收尾）时，若上一条还在滚，先加速滚完
+            var switched = item.Id != _scrolledItemId;
+            if (switched || (phaseChanged && phase == PlaybackPhase.Blackout))
+            {
+                if (_scrollActive)
+                {
+                    await JS.InvokeVoidAsync("newsBoard.finishScroll", ViewportId, ScrollFinishMs);
+                    _scrollActive = false;
+                }
+            }
+
+            if (!switched)
+            {
+                return;
+            }
+
+            _scrolledItemId = item.Id;
+
+            var measured = await JS.InvokeAsync<ScrollMetrics?>("newsBoard.measure", ViewportId);
+            if (measured is null || !measured.Overflow)
+            {
+                return;
+            }
+
+            if (!SpeechDrivesScroll)
+            {
+                // TTS 关闭 / 不可用 / 静音时段：按配置速度匀速滚到底
+                var seconds = measured.Height / Math.Max(1, Config.ScrollSpeedPxPerSecond);
+                await JS.InvokeVoidAsync("newsBoard.startScroll", ViewportId, seconds * 1000);
+                _scrollActive = true;
+                return;
+            }
+
+            // 跟随朗读：按估算朗读剩余时长匀速滚
+            var remaining = PlaybackEngine.EstimateSpeechSeconds(SpeechText(item), Config.SpeechRate)
+                            - (DateTimeOffset.Now - Engine.CurrentStartedAt).TotalSeconds;
+            if (remaining <= 0.3)
+            {
+                return;
+            }
+
+            await JS.InvokeVoidAsync("newsBoard.startScroll", ViewportId, remaining * 1000);
+            _scrollActive = true;
+        }
+        catch (JSException)
+        {
+        }
+        catch (InvalidOperationException)
+        {
+        }
+        catch (TaskCanceledException)
+        {
+        }
+        finally
+        {
+            _jsGate.Release();
+        }
+    }
+
+    private bool SpeechDrivesScroll => Config.SpeechEnabled && Engine.IsSpeechAvailable && !Engine.IsInQuietHours;
+
+    private string SpeechText(NewsItem item)
+        => item.GetSpeechText(Config.SpeechContent == SpeechContent.TitleAndSummary);
+
+    public async ValueTask DisposeAsync()
+    {
+        Engine.StateChanged -= OnEngineStateChanged;
+        Repository.Changed -= OnRepositoryChanged;
+        ConfigProvider.Changed -= OnConfigChanged;
+
+        _clockTimer?.Dispose();
+        _clockTimer = null;
+
+        await Engine.StopAsync();
+        _jsGate.Dispose();
+    }
+
+    private sealed class ScrollMetrics
+    {
+        public double ScrollHeight { get; set; }
+
+        public double ClientHeight { get; set; }
+
+        public double Height { get; set; }
+
+        public bool Overflow { get; set; }
+    }
+}

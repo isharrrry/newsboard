@@ -1,0 +1,150 @@
+/* 播放页样式（plan §5.4 / T10）。字号与配色由 Display 以 inline style 注入，这里只管布局与滚动。 */
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: #000;
+    font-family: "Microsoft YaHei", "Noto Sans SC", "PingFang SC", "Source Han Sans SC", system-ui, sans-serif;
+}
+
+#app,
+.board {
+    height: 100%;
+    width: 100%;
+}
+
+.board {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: opacity 400ms ease;
+}
+
+.board-top,
+.board-bottom {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5em;
+    min-height: 1.2em;
+}
+
+.board-bottom {
+    justify-content: flex-end;
+}
+
+.board-keyword,
+.board-clock,
+.board-source {
+    opacity: 0.9;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+
+/* 固定高度容器：溢出判定发生在这一层（scrollHeight vs clientHeight） */
+.board-viewport {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.board-viewport::-webkit-scrollbar {
+    display: none;
+}
+
+.board-content {
+    width: 100%;
+}
+
+.board-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    opacity: 0.6;
+}
+
+.card {
+    display: flex;
+    gap: 0.35em;
+    width: 100%;
+}
+
+.card-keyword {
+    letter-spacing: 0.06em;
+}
+
+.card-image {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-radius: 0.15em;
+}
+
+.card-image img {
+    max-width: 100%;
+    max-height: 100%;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+}
+
+.card-body {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+    gap: 0.25em;
+}
+
+.card-title {
+    opacity: 0.85;
+}
+
+.card-summary {
+    word-break: break-word;
+}
+
+.card-source {
+    letter-spacing: 0.02em;
+}
+
+/* 黑屏：全屏遮罩，App 层黑屏（亮度归零由 IScreenController 负责） */
+.blackout {
+    position: absolute;
+    inset: 0;
+    background: #000;
+    z-index: 10;
+}
+
+.board-gear {
+    position: absolute;
+    right: 0.35em;
+    bottom: 0.1em;
+    z-index: 20;
+    color: inherit;
+    opacity: 0.12;
+    font-size: 1.25rem;
+    line-height: 1;
+    text-decoration: none;
+    transition: opacity 200ms ease;
+}
+
+.board-gear:hover,
+.board-gear:focus {
+    opacity: 0.55;
+}
