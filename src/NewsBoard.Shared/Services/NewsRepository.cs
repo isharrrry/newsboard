@@ -1,0 +1,242 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using NewsBoard.Shared.Models;
+using NewsBoard.Shared.Services.Abstractions;
+
+namespace NewsBoard.Shared.Services;
+
+/// <summary>news.json 缓存：URL 去重 + 轮播排序 + AI 调用成本控制。</summary>
+public sealed class NewsRepository : INewsRepository
+{
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = true,
+        Converters = { new JsonStringEnumConverter() },
+    };
+
+    private readonly object _gate = new();
+    private readonly Dictionary<string, NewsItem> _byId = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _urls = new(StringComparer.Ordinal);
+
+    private DateTimeOffset? _lastAiCallAt;
+    private int _version;
+    private List<NewsItem>? _randomPlaylist;
+    private int _randomPlaylistVersion = -1;
+
+    public NewsRepository(string? directory = null)
+    {
+        Directory = directory ?? Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "NewsBoard");
+        FilePath = Path.Combine(Directory, "news.json");
+    }
+
+    public string Directory { get; }
+
+    public string FilePath { get; }
+
+    public DateTimeOffset? LastAiCallAt
+    {
+        get { lock (_gate) return _lastAiCallAt; }
+    }
+
+    public event Action? Changed;
+
+    public async Task LoadAsync(CancellationToken cancellationToken = default)
+    {
+        RepoFile? file = null;
+        try
+        {
+            if (File.Exists(FilePath))
+            {
+                await using var stream = File.OpenRead(FilePath);
+                file = await JsonSerializer
+                    .DeserializeAsync<RepoFile>(stream, JsonOptions, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        {
+            // 缓存损坏或不可读时视为空缓存，不影响启动
+            file = null;
+        }
+
+        lock (_gate)
+        {
+            _byId.Clear();
+            _urls.Clear();
+            _lastAiCallAt = file?.LastAiCallAt;
+
+            foreach (var item in file?.Items ?? [])
+            {
+                if (string.IsNullOrWhiteSpace(item.Url)) continue;
+                item.Url = item.Url.Trim();
+                if (string.IsNullOrWhiteSpace(item.Id)) item.Id = NewsSummarizer.MakeId(item.Url);
+                _byId[item.Id] = item;
+                _urls.Add(item.Url);
+            }
+
+            _version++;
+        }
+
+        Changed?.Invoke();
+    }
+
+    public async Task SaveAsync(CancellationToken cancellationToken = default)
+    {
+        RepoFile snapshot;
+        lock (_gate)
+        {
+            snapshot = new RepoFile
+            {
+                LastAiCallAt = _lastAiCallAt,
+                Items = [.. _byId.Values],
+            };
+        }
+
+        System.IO.Directory.CreateDirectory(Directory);
+        var tempPath = FilePath + ".tmp";
+        await using (var stream = File.Create(tempPath))
+        {
+            await JsonSerializer.SerializeAsync(stream, snapshot, JsonOptions, cancellationToken).ConfigureAwait(false);
+            await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        File.Move(tempPath, FilePath, overwrite: true);
+    }
+
+    public bool Contains(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return false;
+        lock (_gate) return _urls.Contains(url.Trim());
+    }
+
+    public bool IsWithinAiCooldown(AppConfig config, DateTimeOffset now)
+    {
+        if (config.AiMinIntervalMinutes <= 0) return false;
+
+        lock (_gate)
+        {
+            return _lastAiCallAt is { } last && now - last < TimeSpan.FromMinutes(config.AiMinIntervalMinutes);
+        }
+    }
+
+    public void MarkAiCalled(DateTimeOffset at)
+    {
+        lock (_gate) _lastAiCallAt = at;
+    }
+
+    public void AddOrUpdateRange(IEnumerable<NewsItem> items)
+    {
+        var changed = false;
+        lock (_gate)
+        {
+            foreach (var item in items)
+            {
+                if (item is null || string.IsNullOrWhiteSpace(item.Url)) continue;
+
+                item.Url = item.Url.Trim();
+                if (string.IsNullOrWhiteSpace(item.Id)) item.Id = NewsSummarizer.MakeId(item.Url);
+
+                if (_byId.TryGetValue(item.Id, out var existing))
+                {
+                    if (!string.IsNullOrWhiteSpace(item.Title)) existing.Title = item.Title;
+                    if (!string.IsNullOrWhiteSpace(item.Summary)) existing.Summary = item.Summary;
+                    if (!string.IsNullOrWhiteSpace(item.Keyword)) existing.Keyword = item.Keyword;
+                    if (!string.IsNullOrWhiteSpace(item.Source)) existing.Source = item.Source;
+                    if (!string.IsNullOrWhiteSpace(item.ImageUrl)) existing.ImageUrl = item.ImageUrl;
+                    if (item.PublishedAt != default) existing.PublishedAt = item.PublishedAt;
+                }
+                else
+                {
+                    _byId[item.Id] = item;
+                }
+
+                _urls.Add(item.Url);
+                changed = true;
+            }
+
+            if (changed) _version++;
+        }
+
+        if (changed) Changed?.Invoke();
+    }
+
+    public void PruneExpired(DateTimeOffset now, TimeSpan retention)
+    {
+        var cutoff = now - retention;
+        List<string>? expired = null;
+
+        lock (_gate)
+        {
+            foreach (var (id, item) in _byId)
+            {
+                if (item.PublishedAt < cutoff) (expired ??= []).Add(id);
+            }
+
+            foreach (var id in expired ?? [])
+            {
+                _urls.Remove(_byId[id].Url);
+                _byId.Remove(id);
+            }
+
+            if (expired is not null) _version++;
+        }
+
+        if (expired is not null) Changed?.Invoke();
+    }
+
+    public IReadOnlyList<NewsItem> GetPlaylist(AppConfig config)
+    {
+        lock (_gate)
+        {
+            var all = _byId.Values.ToList();
+
+            switch (config.PlayOrder)
+            {
+                case PlayOrder.ByPublishTime:
+                    return all
+                        .OrderByDescending(i => i.PublishedAt)
+                        .ThenBy(i => i.Id, StringComparer.Ordinal)
+                        .ToList();
+
+                case PlayOrder.Random:
+                    if (_randomPlaylist is null || _randomPlaylistVersion != _version)
+                    {
+                        _randomPlaylist = Shuffle(all);
+                        _randomPlaylistVersion = _version;
+                    }
+
+                    return [.. _randomPlaylist];
+
+                default:
+                    var rank = new Dictionary<string, int>(StringComparer.Ordinal);
+                    for (var i = 0; i < config.Keywords.Count; i++) rank[config.Keywords[i].Trim()] = i;
+
+                    return all
+                        .OrderBy(i => rank.TryGetValue(i.Keyword, out var index) ? index : int.MaxValue)
+                        .ThenBy(i => i.Keyword, StringComparer.Ordinal)
+                        .ThenByDescending(i => i.PublishedAt)
+                        .ToList();
+            }
+        }
+    }
+
+    private static List<NewsItem> Shuffle(List<NewsItem> source)
+    {
+        for (var i = source.Count - 1; i > 0; i--)
+        {
+            var j = Random.Shared.Next(i + 1);
+            (source[i], source[j]) = (source[j], source[i]);
+        }
+
+        return source;
+    }
+
+    private sealed class RepoFile
+    {
+        public DateTimeOffset? LastAiCallAt { get; set; }
+
+        public List<NewsItem> Items { get; set; } = [];
+    }
+}
