@@ -31,11 +31,13 @@ public class Sa1RssNewsSourceTests
     {
         var handler = new FakeHttpHandler(_ => FakeHttp.Ok(Sa1Data.Rss()));
         var source = new RssNewsSource(handler.CreateClient());
+        var config = Sa1Data.Config("武汉 疫情");
+        config.RssTemplate = "https://rss.example.com/search?q={q}&format=RSS";
 
-        await source.FetchAsync("武汉 疫情", Sa1Data.Config("武汉 疫情"));
+        await source.FetchAsync("武汉 疫情", config);
 
         var url = Assert.Single(handler.Recorded).Url;
-        Assert.StartsWith("https://www.bing.com/news/search?q=", url);
+        Assert.StartsWith("https://rss.example.com/search?q=", url);
         Assert.Contains(Uri.EscapeDataString("武汉 疫情"), url);
         Assert.EndsWith("&format=RSS", url);
         Assert.DoesNotContain(" ", url);
