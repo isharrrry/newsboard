@@ -86,7 +86,11 @@
 
     private string KeywordStyle => $"color:{Config.AccentColor};font-size:{Sp(Config.KeywordLabelFontSizeSp)}";
 
-    private string ClockStyle => $"color:{Config.AccentColor};font-size:{Sp(Math.Max(14, Config.KeywordLabelFontSizeSp - 6))}";
+    private string ClockStyle
+        => $"color:{Config.AccentColor};font-size:{Sp(Math.Max(10, Config.ClockFontSizeSp))};"
+           + (string.IsNullOrWhiteSpace(Config.ClockFontFamily)
+               ? string.Empty
+               : $"font-family:'{Config.ClockFontFamily.Replace("'", string.Empty)}';");
 
     private string Align => Config.TextAlign switch
     {

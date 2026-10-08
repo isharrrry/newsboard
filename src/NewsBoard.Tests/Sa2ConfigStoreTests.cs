@@ -48,6 +48,9 @@ public sealed class Sa2ConfigStoreTests : IDisposable
             new[] { "http://www.people.com.cn/rss/politics.xml", "https://www.ithome.com/rss/" },
             store.Current.RssFallbackTemplates);
         Assert.True(store.Current.OnlyTodayNews);
+        Assert.Equal(SummaryLanguageOption.SimplifiedChinese, store.Current.SummaryLanguage);
+        Assert.Equal(0.7, store.Current.ImportanceThreshold);
+        Assert.Equal(3, store.Current.RetentionDays);
         Assert.Null(store.Current.ApiKey);
 
         Assert.Equal("#000000", store.Current.BackgroundColor);
@@ -60,6 +63,8 @@ public sealed class Sa2ConfigStoreTests : IDisposable
         Assert.Equal(28, store.Current.KeywordLabelFontSizeSp);
         Assert.Equal(TextAlignOption.Center, store.Current.TextAlign);
         Assert.True(store.Current.ShowClock);
+        Assert.Equal(32, store.Current.ClockFontSizeSp);
+        Assert.Equal("", store.Current.ClockFontFamily);
         Assert.True(store.Current.ShowKeywordLabel);
         Assert.False(store.Current.ShowTitle);
         Assert.False(store.Current.ShowSource);
@@ -82,7 +87,7 @@ public sealed class Sa2ConfigStoreTests : IDisposable
         Assert.Equal(WindowEndBehavior.FinishCurrentItem, store.Current.WindowEndBehavior);
         Assert.Equal(ImagePosition.TopImageBottomText, store.Current.ImagePosition);
         Assert.Equal(40, store.Current.ImageScreenPercent);
-        Assert.Equal(PlayOrder.ByKeywordOrder, store.Current.PlayOrder);
+        Assert.Equal(PlayOrder.Random, store.Current.PlayOrder);
         Assert.True(store.Current.ResumeAcrossRounds);
 
         Assert.True(store.Current.KeepScreenOn);

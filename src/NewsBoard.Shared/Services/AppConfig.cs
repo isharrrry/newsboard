@@ -20,6 +20,31 @@ public enum PlayOrder { ByKeywordOrder, ByPublishTime, Random }
 
 public enum TextAlignOption { Left, Center, Right }
 
+/// <summary>摘要/提炼的输出语言（呈现与朗读文本都跟随它）。</summary>
+public enum SummaryLanguageOption { SimplifiedChinese, TraditionalChinese, English }
+
+/// <summary>语言选项 → 提示词里给模型的语言约束。</summary>
+public static class SummaryLanguageText
+{
+    public static string DisplayName(this SummaryLanguageOption option) => option switch
+    {
+        SummaryLanguageOption.TraditionalChinese => "繁體中文",
+        SummaryLanguageOption.English => "English",
+        _ => "简体中文",
+    };
+
+    /// <summary>写进提示词的硬性语言要求。</summary>
+    public static string PromptRule(this SummaryLanguageOption option) => option switch
+    {
+        SummaryLanguageOption.TraditionalChinese
+            => "全部用繁体中文书写，不要出现简体字（专有名词按当地习惯译名）。",
+        SummaryLanguageOption.English
+            => "Write everything in English, do not output any Chinese characters.",
+        _ => "全部用简体中文书写：禁止出现繁体字，禁止中英夹杂（人名、机构名、产品型号等专有名词可保留原文）。",
+    };
+}
+
+
 /// <summary>全部 App 内可配置项。JSON 持久化，不含 ApiKey。</summary>
 public sealed class AppConfig
 {
@@ -46,6 +71,15 @@ public sealed class AppConfig
 
     public bool OnlyTodayNews { get; set; } = true;
 
+    /// <summary>摘要与提炼的输出语言（默认简体中文）。</summary>
+    public SummaryLanguageOption SummaryLanguage { get; set; } = SummaryLanguageOption.SimplifiedChinese;
+
+    /// <summary>重要度门槛：模型评出的 importance 低于它就不进入播放列表。</summary>
+    public double ImportanceThreshold { get; set; } = 0.7;
+
+    /// <summary>缓存保留天数，超过则从列表清理（默认 3 天）。</summary>
+    public int RetentionDays { get; set; } = 3;
+
     /// <summary>运行时从 ISecretStore 注入，永不写入 JSON。</summary>
     [JsonIgnore]
     public string? ApiKey { get; set; }
@@ -61,6 +95,13 @@ public sealed class AppConfig
     public int KeywordLabelFontSizeSp { get; set; } = 28;
     public TextAlignOption TextAlign { get; set; } = TextAlignOption.Center;
     public bool ShowClock { get; set; } = true;
+
+    /// <summary>时钟字号（sp），默认 32；不再由关键字标签字号推导。</summary>
+    public int ClockFontSizeSp { get; set; } = 32;
+
+    /// <summary>时钟字体族，空 = 跟随系统默认。</summary>
+    public string ClockFontFamily { get; set; } = "";
+
     public bool ShowKeywordLabel { get; set; } = true;
     public bool ShowTitle { get; set; } = false;
     public bool ShowSource { get; set; } = false;
@@ -84,7 +125,8 @@ public sealed class AppConfig
     public WindowEndBehavior WindowEndBehavior { get; set; } = WindowEndBehavior.FinishCurrentItem;
     public ImagePosition ImagePosition { get; set; } = ImagePosition.TopImageBottomText;
     public int ImageScreenPercent { get; set; } = 40;
-    public PlayOrder PlayOrder { get; set; } = PlayOrder.ByKeywordOrder;
+    /// <summary>播放顺序：默认随机 —— 只播重要度达标的条目，顺序打散避免每天都是同几条第位。</summary>
+    public PlayOrder PlayOrder { get; set; } = PlayOrder.Random;
     public bool ResumeAcrossRounds { get; set; } = true;
 
     // ---- 4.4 系统 / 宿主 ----
