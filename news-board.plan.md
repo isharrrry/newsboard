@@ -423,3 +423,22 @@ stateDiagram-v2
   2. `BaseUrlSearch` 确认为 `https://api.deepseek.com/anthropic`（请求路径 `{BaseUrlSearch}/v1/messages`）。
 - 契约（`Models/NewsItem.cs`、`Services/AppConfig.cs`、`Services/Abstractions/*`、`_Imports.razor`、`Components/Routes.razor`）在开工时冻结，见 `AGENTS.md`。
 - 任务完成状态以 **§8 表格的状态列**为准。
+
+### 11.1 并行工作流与集成记录
+
+主干只做「冻结契约 + 集成 + 验证」，每个任务一个 git worktree 分支并行开发，分支提交后由主干 `--no-ff` 合并并跑编译/测试。
+
+| 分支 | 范围 | 状态 |
+|---|---|---|
+| `sa1` | 采集 + AI 提炼（T5/T6/T7） | 开发中 |
+| `sa2` | 配置持久化 + 设置页（T4） | ✅ 已合并 |
+| `sa3` | 播放引擎 + 播放 UI（T9/T10/T11） | 开发中 |
+| `sa4` | WPF 宿主（T1/T2/T3/T8 的 Windows 侧） | 开发中 |
+| `sa5` | Android 环境（§7：workload + SDK + JDK） | 安装中 |
+| `sa6` | MAUI(Android) 宿主（T1/T2/T3/T4b/T8 的 Android 侧） | 开发中 |
+
+集成记录（主干 HEAD 依次递增）：
+
+1. `集成 SA2：配置持久化 + 设置页（T4 主体）` —— 合并 `sa2@c68fc01`，新增 `Services/ConfigStore.cs`、`Components/Pages/Settings.razor`、`wwwroot/css/settings.css`、`Tests/Sa2ConfigStoreTests.cs`。
+   验证：`dotnet build src\NewsBoard.Shared` 0 警告 0 错误；`dotnet test src\NewsBoard.Tests` **13/13 通过**（含「config.json 内不含 ApiKey 键」断言）。
+2. 主干遗留问题（待 `sa4` 合并解）：`NewsBoard.slnx` 整体编译失败于 `src\NewsBoard.Wpf` —— 骨架 csproj 的 `StartupObject` 指向尚不存在的 `App.xaml`。
