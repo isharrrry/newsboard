@@ -1,6 +1,6 @@
 # MauiNewsBoard — 安卓大字新闻看板 · 实施方案
 
-> 类型：实施计划（plan）。状态：**第 2 稿（已处理画布批注 fb-5 ~ fb-8），等待 Approve**。
+> 类型：实施计划（plan）。状态：**已 Approve，实施中（2026-10-08 开工，多子代理并行；逐项完成状态见 §8）**。
 > 技术栈：Blazor（RCL）+ .NET MAUI Blazor Hybrid（Android）+ WPF + WebView2（Windows），三个 csproj。
 
 ---
@@ -360,23 +360,23 @@ stateDiagram-v2
 
 ## 8. 任务拆解（每步带自证方式）
 
-| # | 任务 | 验证方式 |
-|---|---|---|
-| T0 | **实测联网搜索端点** | curl `{BaseUrlSearch}/v1/messages` + `web_search` 工具，确认返回真实搜索结果；不通则永久走通道 B |
-| T1 | **三项目骨架 + 环境就绪** | `NewsBoard.sln` 三项目编译通过；WPF 版 `dotnet run` 起窗口显示 Razor 页；MAUI 版出 APK 装进手机能启动 |
-| T2 | Shared 空壳：BlazorWebView 宿主（两端） | Android 默认是带系统状态栏的纯色页，设置里开沉浸全屏后状态栏消失；WPF 默认是带标题栏的窗口，开无边框全屏后铺满屏幕、可退出 |
-| T3 | `IScreenController`（Android 实现）：常亮 + 亮度 0 + 恢复 | 手动触发黑屏，静置 6 分钟：屏幕不锁、不自动息屏；WPF 用空实现不报错 |
-| T4 | `AppConfig` + 设置页 + 持久化 + `ISecretStore` | 改配置 → 杀进程重启配置还在；Key 两端都不落 JSON 明文 |
-| T4b | 开机自启（Android `BootReceiver`+前台服务；WPF 注册表 Run） | 两端各重启一次机器：App 自动起来并开始轮播；Android 上确认不被厂商自启动管理拦掉 |
-| T5 | `RssNewsSource` | 打印 6 个关键字各 3 条标题+时间，日期新鲜 |
-| T6 | `NewsSummarizer` | 严格 JSON，逐条 ≤ 60 字；抽查 3 条与原文事实一致、无幻觉 |
-| T7 | 去重 + 缓存 | 连跑 3 轮，第 2、3 轮 AI 调用次数为 0 |
-| T8 | `ISpeechService`（两端）+ 设置页语速 | Android 与 Windows 各念一遍中文摘要，语速/音调改动生效，完成回调准确触发 |
-| T9 | `PlaybackEngine` 状态机（含 TTS 生命周期） | 日志：SHOW 60s → BLACKOUT 300s → SHOW 误差 <1s；TTS 结束≈切条时刻；黑屏期间无朗读 |
-| T10 | 播放 UI：配色/字号/边距 + 溢出判定 + 滚动联动 | 造 200 字长文：念完那一刻基本滚到底；50 字短文本不滚动 |
-| T11 | 图文模式 | 有 `og:image` 正常显示；坏 URL 优雅退化 |
-| T12 | Release 打包 | APK 装机可用、体积达标；WPF `dotnet publish` 出可分发目录并运行 |
-| T13 | 长稳测试 | Android 连跑 2 小时：不崩溃、内存不持续增长、不锁屏、朗读与切条节奏稳定 |
+| # | 任务 | 验证方式 | 状态 |
+|---|---|---|---|
+| T0 | **实测联网搜索端点** | curl `{BaseUrlSearch}/v1/messages` + `web_search` 工具，确认返回真实搜索结果；不通则永久走通道 B | ✅ **已完成**：返回 `server_tool_use` + `web_search_tool_result`（真实检索结果），通道 A 可用；`deepseek-chat` → 后端 `deepseek-v4-flash` |
+| T1 | **三项目骨架 + 环境就绪** | `NewsBoard.sln` 三项目编译通过；WPF 版 `dotnet run` 起窗口显示 Razor 页；MAUI 版出 APK 装进手机能启动 | ⬜ |
+| T2 | Shared 空壳：BlazorWebView 宿主（两端） | Android 默认是带系统状态栏的纯色页，设置里开沉浸全屏后状态栏消失；WPF 默认是带标题栏的窗口，开无边框全屏后铺满屏幕、可退出 | ⬜ |
+| T3 | `IScreenController`（Android 实现）：常亮 + 亮度 0 + 恢复 | 手动触发黑屏，静置 6 分钟：屏幕不锁、不自动息屏；WPF 用空实现不报错 | ⬜ |
+| T4 | `AppConfig` + 设置页 + 持久化 + `ISecretStore` | 改配置 → 杀进程重启配置还在；Key 两端都不落 JSON 明文 | ⬜ |
+| T4b | 开机自启（Android `BootReceiver`+前台服务；WPF 注册表 Run） | 两端各重启一次机器：App 自动起来并开始轮播；Android 上确认不被厂商自启动管理拦掉 | ⬜ |
+| T5 | `RssNewsSource` | 打印 6 个关键字各 3 条标题+时间，日期新鲜 | ⬜ |
+| T6 | `NewsSummarizer` | 严格 JSON，逐条 ≤ 60 字；抽查 3 条与原文事实一致、无幻觉 | ⬜ |
+| T7 | 去重 + 缓存 | 连跑 3 轮，第 2、3 轮 AI 调用次数为 0 | ⬜ |
+| T8 | `ISpeechService`（两端）+ 设置页语速 | Android 与 Windows 各念一遍中文摘要，语速/音调改动生效，完成回调准确触发 | ⬜ |
+| T9 | `PlaybackEngine` 状态机（含 TTS 生命周期） | 日志：SHOW 60s → BLACKOUT 300s → SHOW 误差 <1s；TTS 结束≈切条时刻；黑屏期间无朗读 | ⬜ |
+| T10 | 播放 UI：配色/字号/边距 + 溢出判定 + 滚动联动 | 造 200 字长文：念完那一刻基本滚到底；50 字短文本不滚动 | ⬜ |
+| T11 | 图文模式 | 有 `og:image` 正常显示；坏 URL 优雅退化 | ⬜ |
+| T12 | Release 打包 | APK 装机可用、体积达标；WPF `dotnet publish` 出可分发目录并运行 | ⬜ |
+| T13 | 长稳测试 | Android 连跑 2 小时：不崩溃、内存不持续增长、不锁屏、朗读与切条节奏稳定 | ⬜ |
 
 **实施顺序**：T0（决定通道）→ T1–T3（打通「能装、能黑屏、不锁屏」核心链路）→ T8/T9（TTS 与状态机）→ 其余。
 
@@ -414,13 +414,12 @@ stateDiagram-v2
 
 ---
 
-## 11. 下一步
+## 11. 实施记录（2026-10-08 开工）
 
-方案已按批注改完，等你给结论：
+方案已 Approve 并开工，采用「主干冻结契约 + 每任务一个 git worktree 子代理并行」的方式推进：
 
-- **Approve plan** → 我立刻开工 T0（实测联网搜索端点）+ T1（三项目骨架与环境）。
-- **Request changes** → 继续在画布上点。
-
-开工前仍需你两个确切值（Key 不用给，你自己填在设置页）：
-1. `BaseUrl` + `Model` 的实际写法。
-2. `BaseUrlSearch` 是否就是 `https://api.deepseek.com/anthropic`。
+- **T0 已实测通过**：`POST https://api.deepseek.com/anthropic/v1/messages` + `tools:[{"type":"web_search_20250305",...}]` 返回 `server_tool_use` 与 `web_search_tool_result`（真实检索结果），通道 A 可用。因此 §11 遗留的两个待确认值已闭环：
+  1. `BaseUrl` = `https://api.deepseek.com`、`Model` = `deepseek-chat`（后端实际回显 `deepseek-v4-flash`）—— 与 §4.1 默认值一致，无需改动。
+  2. `BaseUrlSearch` 确认为 `https://api.deepseek.com/anthropic`（请求路径 `{BaseUrlSearch}/v1/messages`）。
+- 契约（`Models/NewsItem.cs`、`Services/AppConfig.cs`、`Services/Abstractions/*`、`_Imports.razor`、`Components/Routes.razor`）在开工时冻结，见 `AGENTS.md`。
+- 任务完成状态以 **§8 表格的状态列**为准。
