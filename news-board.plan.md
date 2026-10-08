@@ -378,7 +378,7 @@ stateDiagram-v2
 | T1 | **三项目骨架 + 环境就绪** | `NewsBoard.sln` 三项目编译通过；WPF 版 `dotnet run` 起窗口显示 Razor 页；MAUI 版出 APK 装进手机能启动 | 🟡 **编译与打包通过，装机未验**：`dotnet build NewsBoard.slnx`（含 MAUI/Android）**0 警告 0 错误**；WPF 实机运行：进程存活、`MainWindowTitle=新闻看板`、`msedgewebview2` 子进程 12 个；Android 产出 `com.newsboard.app-Signed.apk` **14.96 MB**，但**本机无设备/模拟器**（`adb devices` 为空）⇒ 装机启动无法验证 |
 | T2 | Shared 空壳：BlazorWebView 宿主（两端） | Android 默认是带系统状态栏的纯色页，设置里开沉浸全屏后状态栏消失；WPF 默认是带标题栏的窗口，开无边框全屏后铺满屏幕、可退出 | 🟡 **Windows 侧通过**：默认 `1600x1000@(160,10)` 带标题栏 → F11 `1920x1080@(0,0)` 铺满 → Esc 还原，配置同步落盘（`WindowsBorderlessFullscreen` 真值往返）。**局限**：按键经 `WM_KEYDOWN` 投递（SendKeys 在本机送不进该窗口），且本轮全程未人工按键；Android 状态栏/沉浸式未装机。另修掉真缺陷：WebView2 抢焦点后 WPF 收不到键盘，已加 JS→宿主消息桥 |
 | T3 | `IScreenController`（Android 实现）：常亮 + 亮度 0 + 恢复 | 手动触发黑屏，静置 6 分钟：屏幕不锁、不自动息屏；WPF 用空实现不报错 | 🟡 WPF 空实现参与启动/全屏链路无异常；Android `AndroidScreenController`（KeepScreenOn + 窗口亮度 0 + 黑屏不动 KeepScreenOn）已实现，**未装机验证** |
-| T4 | `AppConfig` + 设置页 + 持久化 + `ISecretStore` | 改配置 → 杀进程重启配置还在；Key 两端都不落 JSON 明文 | 🟡 `ConfigStore` 单测覆盖：JSON 全字段往返、**`config.json` 内不含 `ApiKey` 键**、坏文件降级不抛（13 项）；设置页四组配置 + Key 独立存储已实现；WPF DPAPI 密文实测 278 字节不含明文。**未做**「UI 改配置 → 杀进程 → 重启仍在」的实机端到端（依赖 UI 自动化） |
+| T4 | `AppConfig` + 设置页 + 持久化 + `ISecretStore` | 改配置 → 杀进程重启配置还在；Key 两端都不落 JSON 明文 | 🟡 **读取侧端到端已实测**：手工预置 `%LOCALAPPDATA%\NewsBoard\config.json`（只写 3 个字段）→ 启动发布版 → **窗口变为 `1920x1080@(0,0)` 无边框全屏**（配置真被应用），缺字段补默认（宽容读盘）；读回 JSON 确认 **无 `ApiKey` 键**、值保持。写入侧：`ConfigStore` 13 项单测（全字段往返、无 ApiKey 键、坏文件降级）+ SA4 的 F11/Esc 实测写出 `True`/`False`。WPF DPAPI 密文 278B 实测不含明文。**未做**「在设置页 UI 上改完再杀进程重启」的自动化验证（UI 注入受限） |
 | T4b | 开机自启（Android `BootReceiver`+前台服务；WPF 注册表 Run） | 两端各重启一次机器：App 自动起来并开始轮播；Android 上确认不被厂商自启动管理拦掉 | 🟡 WPF：HKCU Run 键 Enable→IsEnabled→Disable 往返实测通过（无残留），`IAutoStart` 已接设置页；Android：`BootReceiver` + 前台服务 + 全屏通知已实现（不走 `StartActivity`）。**未做**重启机器验证 |
 | T5 | `RssNewsSource` | 打印 6 个关键字各 3 条标题+时间，日期新鲜 | ✅ **主干实测**：默认共享频道源（中新网滚动）**只发 1 次 HTTP**，10 条原文全部带发布时间且新鲜（11:13–11:33，当下 11:40）；含 `{q}` 模板仍走「每关键字各抓一次」；备用链（人民网/IT之家）按序回退。口径变更：共享源不再按关键字分桶，条目 `Keyword` 用频道名 |
 | T6 | `NewsSummarizer` | 严格 JSON，逐条 ≤ 60 字；抽查 3 条与原文事实一致、无幻觉 | ✅ 主干实测：一次批量提炼 10 篇 → 7 条，摘要 **23–36 字**，全部 ≤ 50 字软上限；联网通道摘要 30–55 字；严格 JSON 解析 + 围栏容错；失败重试 1 次后退化为标题截断 |
@@ -387,7 +387,7 @@ stateDiagram-v2
 | T9 | `PlaybackEngine` 状态机（含 TTS 生命周期） | 日志：SHOW 60s → BLACKOUT 300s → SHOW 误差 <1s；TTS 结束≈切条时刻；黑屏期间无朗读 | ⬜ 实现中（sa3 分支，未并入主干） |
 | T10 | 播放 UI：配色/字号/边距 + 溢出判定 + 滚动联动 | 造 200 字长文：念完那一刻基本滚到底；50 字短文本不滚动 | ⬜ 实现中（sa3 分支） |
 | T11 | 图文模式 | 有 `og:image` 正常显示；坏 URL 优雅退化 | 🟡 `ImageResolver` 已并入主干并单测：`og:image`/`twitter:image` 兜底、相对地址补全、非 http(s) 与超时返回 `null`（退化为纯文字）；`Display.razor` 的图文布局待 sa3 合并 |
-| T12 | Release 打包 | APK 装机可用、体积达标；WPF `dotnet publish` 出可分发目录并运行 | 🟡 Android **Debug APK 14.96 MB** 已产出（目标 18–25MB 内，但未启用 §7 的 Release trimming/AOT 组合）；WPF `dotnet publish` 未做；装机可用性无设备可验 |
+| T12 | Release 打包 | APK 装机可用、体积达标；WPF `dotnet publish` 出可分发目录并运行 | 🟡 **两端都出包了**：WPF `dotnet publish -c Release` → `.tmp/publish-wpf` **45 文件 / 28.14MB**，从发布目录直接运行成功（标题「新闻看板」、`msedgewebview2` 子进程 6 个、响应正常），RCL 静态资产已随包（`wwwroot\_content\NewsBoard.Shared\css\settings.css`、`_framework\blazor.webview.js`）；Android **Debug APK 14.96 MB**（§7 的 Release trimming/AOT 组合尚未启用）。**未验**：APK 装机可用性（无设备）；WPF 发布包未做自包含/单文件 |
 | T13 | 长稳测试 | Android 连跑 2 小时：不崩溃、内存不持续增长、不锁屏、朗读与切条节奏稳定 | ⬜ 本机无 Android 设备，无法执行（环境限制） |
 
 **状态口径**：✅ = 按原验证方式完成并有实测证据；🟡 = 部分完成，受限项已在单元格内写明（本轮主要受限项是「本机无 Android 设备/模拟器」与「UI 自动化注入受限」）；⬜ = 未开始。
