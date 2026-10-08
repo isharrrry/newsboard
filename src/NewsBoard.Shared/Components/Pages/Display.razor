@@ -1,10 +1,13 @@
 @page "/"
+@using Microsoft.Extensions.DependencyInjection
 @using NewsBoard.Shared.Components.Shared
+@using NewsBoard.Shared.Services.Abstractions
 @implements IAsyncDisposable
 @inject PlaybackEngine Engine
 @inject INewsRepository Repository
 @inject IConfigProvider ConfigProvider
 @inject IJSRuntime JS
+@inject IServiceProvider Services
 
 <PageTitle>新闻看板</PageTitle>
 
@@ -45,7 +48,17 @@
         }
     </div>
 
-    <a class="board-gear" href="settings" title="设置">&#9881;</a>
+    <div class="board-controls" role="toolbar" aria-label="播放控制">
+        <button type="button" class="board-btn" title="上一条" aria-label="上一条"
+                disabled="@(!HasPlaylist)" @onclick="PreviousAsync">&#9198;</button>
+        <button type="button" class="board-btn" title="下一条" aria-label="下一条"
+                disabled="@(!HasPlaylist)" @onclick="NextAsync">&#9197;</button>
+        <button type="button" class="board-btn" title="在浏览器打开原文" aria-label="打开原文"
+                disabled="@(!HasUrl)" @onclick="OpenSourceAsync">&#128279;</button>
+        <button type="button" class="board-btn" title="打断本轮（灭屏等待后进入下一轮）" aria-label="打断本轮"
+                @onclick="InterruptAsync">&#9208;</button>
+        <a class="board-btn" href="settings" title="设置" aria-label="设置">&#9881;</a>
+    </div>
 </div>
 
 @code {
@@ -216,6 +229,40 @@
     }
 
     private bool SpeechDrivesScroll => Config.SpeechEnabled && Engine.IsSpeechAvailable && !Engine.IsInQuietHours;
+
+    private bool HasPlaylist => Engine.Playlist.Count > 0;
+
+    private bool HasUrl => !string.IsNullOrWhiteSpace(CurrentItem?.Url);
+
+    private Task PreviousAsync() => Engine.PreviousAsync();
+
+    private Task NextAsync() => Engine.NextAsync();
+
+    private Task InterruptAsync() => Engine.InterruptAsync();
+
+    private async Task OpenSourceAsync()
+    {
+        var url = CurrentItem?.Url;
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            return;
+        }
+
+        var opener = Services.GetService<ILinkOpener>();
+        if (opener is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await opener.OpenAsync(url);
+        }
+        catch (Exception)
+        {
+            // 打不开原文不该影响播放
+        }
+    }
 
     private string SpeechText(NewsItem item)
         => item.GetSpeechText(Config.SpeechContent == SpeechContent.TitleAndSummary);

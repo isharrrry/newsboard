@@ -453,6 +453,7 @@ internal sealed class EngineHarness : IAsyncDisposable
 // 测试
 // ---------------------------------------------------------------------------
 
+[Collection(PlaybackCollection.Name)]
 public sealed class Sa3PlaybackEngineTests
 {
     /// <summary>虚拟时间倍率：60 秒展示窗口在测试里约 0.6 秒，便于观察相位切换。</summary>

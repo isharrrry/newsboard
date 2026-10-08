@@ -20,6 +20,11 @@
 
     <script src="_content/NewsBoard.Shared/js/measure.js"></script>
     <script src="_framework/blazor.webview.js" autostart="false"></script>
+    <script>
+        // autostart="false" 时没人替我们启动 Blazor（Windows 头实测会一直停在「正在启动…」），
+        // 这里显式启动；重复调用是幂等的。
+        Blazor.start();
+    </script>
 </body>
 
 </html>

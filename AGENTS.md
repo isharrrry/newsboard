@@ -20,9 +20,14 @@ dotnet build NewsBoard.slnx -v q --nologo
 
 # 单独构建 Android 宿主（产出 APK 于 bin\Debug\net10.0-android\*-Signed.apk）
 dotnet build src\NewsBoard.Maui\NewsBoard.Maui.csproj -f net10.0-android -v q --nologo
+
+# MAUI 的 Windows 头（桌面调试；非打包运行，依赖已安装的 Windows App Runtime）
+dotnet build src\NewsBoard.Maui\NewsBoard.Maui.csproj -f net10.0-windows10.0.19041.0 -v q --nologo
+dotnet run --project src\NewsBoard.Maui -f net10.0-windows10.0.19041.0
 ```
 
-当前机器：`.NET SDK 10.0.203`、runtime `10.0.7`；`maui-android` workload **已安装**（10.0.20/10.0.100，约 2.57 GB）。
+当前机器：`.NET SDK 10.0.203`、runtime `10.0.7`；`maui-android`（10.0.20/10.0.100）与 `maui-windows` workload **均已安装**。
+MAUI 的 Windows 头用 `WindowsPackageType=None`（非打包）运行，需要 Windows App Runtime（本机已装 1.6 / 1.7 / 1.8）。
 Android 工具链在 **`D:\Android`**：JDK 17 于 `D:\Android\jdk-17`、Android SDK 于 `D:\Android\Sdk`（platform-36 / build-tools 36.0.0 / platform-tools）、NDK 27.2.12479018。
 **构建 Android 前必须先点源 `scripts\android-env.ps1`**（本机执行策略是 `Restricted`，故需先 `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force`）；否则报 `XA5300 找不到 Android SDK`。环境现状与占用清单见 `docs\android-env-report.md`。
 无 Android 设备/模拟器（`adb devices` 为空）→ 装机运行类验证做不了。
@@ -43,7 +48,8 @@ Android 工具链在 **`D:\Android`**：JDK 17 于 `D:\Android\jdk-17`、Android
 
 - `NewsBoard.Shared.Models.NewsItem` / `RawNewsItem`
 - `NewsBoard.Shared.Services.AppConfig`（§4 全部配置项）与全部枚举
-- `NewsBoard.Shared.Services.Abstractions`：`IScreenController`、`ISpeechService`、`ISecretStore`、`IAutoStart`、`INewsSource`、`IConfigProvider`、`INewsRepository`、`IClock`（含 `SystemClock`）
+- `NewsBoard.Shared.Services.Abstractions`：`IScreenController`、`ISpeechService`、`ISecretStore`、`IAutoStart`、`ILinkOpener`（用系统浏览器打开原文）、`INewsSource`、`IConfigProvider`、`INewsRepository`、`IClock`（含 `SystemClock`）
+- `PlaybackEngine` 的手动控制 API：`NextAsync()` / `PreviousAsync()` / `InterruptAsync()`（打断本轮 → 立即灭屏等待「黑屏时长」秒 → 下一轮；即使 `BlackoutCycleEnabled=false` 也会灭一次），方向切换按列表循环回绕
 - `NewsBoard.Shared.Services.ServiceCollectionExtensions.AddNewsBoardCore()` / `InitializeNewsBoardAsync()`：宿主统一装配入口（先注册平台实现，再调用它；启动期必须 await `InitializeNewsBoardAsync()`，否则播放列表为空）
 - `_Imports.razor` 的 using 集合、`Components/Routes.razor` 作为 `BlazorWebView.RootComponent`
 
@@ -51,9 +57,9 @@ Android 工具链在 **`D:\Android`**：JDK 17 于 `D:\Android\jdk-17`、Android
 
 ## 编码约定
 
-- 目标框架：Shared/测试 = `net10.0`；**WPF = `net10.0-windows10.0.19041.0`（必须带版本化平台号）**；MAUI = `net10.0-android`。
+- 目标框架：Shared/测试 = `net10.0`；**WPF = `net10.0-windows10.0.19041.0`（必须带版本化平台号）**；MAUI = `net10.0-android` + `net10.0-windows10.0.19041.0`。
   WPF 用裸 `net10.0-windows` 会启动即崩：`FileNotFoundException: Microsoft.Windows.SDK.NET` —— `BlazorWebView` 内部用 `WebView2CompositionControl`（D3D 合成），需要 CsWinRT 投影程序集，只有版本化 TFM 提供（SA4 实测）。
-- **不引入第三方 NuGet 依赖**（HTTP 用 `HttpClient`，JSON 用 `System.Text.Json`，RSS 用 `XDocument`，测试用 xunit）。例外只有两个：WPF 宿主的 `Microsoft.AspNetCore.Components.WebView.Wpf`（10.0.0）与 `System.Speech`（10.0.7，方案 §3.1 指定的 TTS 实现）。`System.Security.Cryptography.ProtectedData`（DPAPI）**不需要加包**，`UseWPF=true` 时由 WindowsDesktop 框架提供，加包反而报 NU1510。
+- **不引入第三方 NuGet 依赖**（HTTP 用 `HttpClient`，JSON 用 `System.Text.Json`，RSS 用 `XDocument`，测试用 xunit）。例外只有这些：WPF 宿主的 `Microsoft.AspNetCore.Components.WebView.Wpf`（10.0.0）、`System.Speech`（10.0.7，方案 §3.1 指定的 TTS 实现）、以及 MAUI 的 Windows 头必需的 `System.Security.Cryptography.ProtectedData`（10.0.0，MAUI 不走 WindowsDesktop 框架，DPAPI 得自带）。WPF 侧 DPAPI **不需要加包**，`UseWPF=true` 时由 WindowsDesktop 框架提供，加包反而报 NU1510。
 - `Nullable` 与 `ImplicitUsings` 已开启；代码注释用简体中文，仅在必要处写。
 - Shared 项目**零平台依赖**，禁止 `#if ANDROID` / `#if WINDOWS`；平台能力只能通过 `Abstractions` 接口注入。
 - 所有面向用户的新增文本用简体中文。
@@ -67,3 +73,5 @@ Android 工具链在 **`D:\Android`**：JDK 17 于 `D:\Android\jdk-17`、Android
   因此 `RssTemplate` 默认改为不含 `{q}` 的共享频道源，并新增 `RssFallbackTemplates` 备用链：模板**含 `{q}`** → 按关键字各抓一次；**不含** → 视为共享源只抓一次。
 - 默认 `FetchMode = Auto`（先走已验证可用的联网搜索通道，RSS 作保底）。
 - Windows 中文 TTS：`System.Speech` 枚举到 `Microsoft Huihui Desktop`(zh-CN)；`SpeakCompleted` 回调可靠（实测触发，产出 290KB WAV）。
+- **MAUI 的 `wwwroot/index.html` 必须显式 `Blazor.start()`**：`blazor.webview.js` 带 `autostart="false"` 时，Windows 头不会替我们启动，页面会一直停在「正在启动…」（实测；`Blazor.start()` 重复调用是幂等的）。
+- MAUI(Windows) 的窗口标题来自 `ApplicationTitle`（「新闻看板」）；播放页自身不再输出任何标题文字，关键字标签只在页面顶部显示**一条**（`ShowKeywordLabel` 控制）。

@@ -131,20 +131,55 @@ body {
     z-index: 10;
 }
 
-.board-gear {
+/* 播放控制条：横排图标按钮（上一条 / 下一条 / 打开原文 / 打断 / 设置） */
+.board-controls {
     position: absolute;
-    right: 0.35em;
-    bottom: 0.1em;
+    right: 0.5em;
+    bottom: 0.4em;
     z-index: 20;
-    color: inherit;
-    opacity: 0.12;
-    font-size: 1.25rem;
-    line-height: 1;
-    text-decoration: none;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.3em;
+    opacity: 0.32;
     transition: opacity 200ms ease;
 }
 
-.board-gear:hover,
-.board-gear:focus {
-    opacity: 0.55;
+.board-controls:hover,
+.board-controls:focus-within,
+.board-controls:active {
+    opacity: 1;
+}
+
+.board-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.6em;
+    height: 1.6em;
+    padding: 0;
+    border: 1px solid currentColor;
+    border-radius: 0.22em;
+    background: rgba(255, 255, 255, 0.06);
+    color: inherit;
+    font-family: inherit;
+    font-size: 1.6rem;
+    line-height: 1;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background 150ms ease, opacity 150ms ease;
+}
+
+.board-btn:hover,
+.board-btn:focus {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.board-btn:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+
+.board-btn:disabled:hover {
+    background: rgba(255, 255, 255, 0.06);
 }

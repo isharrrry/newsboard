@@ -44,6 +44,7 @@ public partial class App : Application
         services.AddSingleton<IScreenController, WpfScreenController>();
         services.AddSingleton<ISpeechService, WpfSpeechService>();
         services.AddSingleton<IAutoStart, WpfAutoStart>();
+        services.AddSingleton<ILinkOpener, WpfLinkOpener>();
 
         services.AddNewsBoardCore();
     }

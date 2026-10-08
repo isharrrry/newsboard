@@ -1,10 +1,7 @@
 @* 单条新闻渲染：纯文字 / 图文（plan §5.4）。滚动由外层容器负责，卡片自身只排版。 *@
 
 <div class="card" style="@CardStyle">
-    @if (Config.ShowKeywordLabel && !string.IsNullOrWhiteSpace(Item.Keyword))
-    {
-        <div class="card-keyword" style="@KeywordStyle">@Item.Keyword</div>
-    }
+    @* 关键字标签只在播放页顶部显示一条（board-top），卡片内不再重复，避免画面上出现两条同样的标题 *@
 
     @if (HasImage)
     {
@@ -55,9 +52,6 @@
                 : $"flex:0 0 {percent}%;max-width:{percent}%;align-self:stretch";
         }
     }
-
-    private string KeywordStyle
-        => $"color:{Config.AccentColor};font-size:{Sp(Config.KeywordLabelFontSizeSp)};font-weight:600;text-align:center";
 
     private string TextStyle
         => $"color:{Config.ForegroundColor};font-size:{Sp(Config.FontSizeSp)};font-weight:{Weight};"

@@ -42,6 +42,12 @@ public sealed class PlaybackEngine : IAsyncDisposable
     private TaskCompletionSource _advanceTcs = NewSignal();
     private volatile bool _advanceRequested;
 
+    // ---- 手动控制（上一条/下一条/打断）----
+    private volatile int _direction = 1;
+    private volatile bool _interruptRequested;
+    private volatile bool _forcedBlackout;
+    private CancellationTokenSource? _speakCts;
+
     // ---- 一轮（SHOW 窗口）内的时间账 ----
     private DateTimeOffset _windowStartAt;
     private TimeSpan _windowLength;
@@ -147,8 +153,25 @@ public sealed class PlaybackEngine : IAsyncDisposable
     }
 
     /// <summary>手动切到下一条，并从该条重新起算本轮窗口。</summary>
-    public Task NextAsync()
+    public Task NextAsync() => MoveAsync(1);
+
+    /// <summary>手动切到上一条，并从该条重新起算本轮窗口。</summary>
+    public Task PreviousAsync() => MoveAsync(-1);
+
+    /// <summary>
+    /// 打断本轮：立刻停朗读、结束当前展示窗口，强制灭屏等待「黑屏时长」秒后开下一轮。
+    /// 即使配置关闭了亮熄循环，手动打断也会灭一次屏。下一轮是否续播当前条由「跨轮续播」决定。
+    /// </summary>
+    public Task InterruptAsync()
     {
+        _interruptRequested = true;
+        RequestAdvance();
+        return Task.CompletedTask;
+    }
+
+    private Task MoveAsync(int direction)
+    {
+        _direction = direction;
         RequestAdvance();
         return Task.CompletedTask;
     }
@@ -240,7 +263,19 @@ public sealed class PlaybackEngine : IAsyncDisposable
                     _currentIndex = -1;
                 }
                 Notify();
-                await WaitForWindowEndAsync(token).ConfigureAwait(false);
+
+                // 列表空时不能干等满一个窗口：抓到新闻要立刻开播（否则首条要等 60s）
+                var gotData = await WaitForDataOrWindowEndAsync(token).ConfigureAwait(false);
+                if (token.IsCancellationRequested || !_running)
+                {
+                    return;
+                }
+
+                if (gotData)
+                {
+                    ResetWindow(config);
+                    continue;
+                }
             }
             else
             {
@@ -257,7 +292,9 @@ public sealed class PlaybackEngine : IAsyncDisposable
                 return;
             }
 
-            if (!config.BlackoutCycleEnabled)
+            var forcedBlackout = _forcedBlackout;
+            _forcedBlackout = false;
+            if (!config.BlackoutCycleEnabled && !forcedBlackout)
             {
                 ResetWindow(config);
                 continue;
@@ -323,6 +360,11 @@ public sealed class PlaybackEngine : IAsyncDisposable
 
     private async Task PlayWindowAsync(CancellationToken token)
     {
+        if (ConsumeInterrupt())
+        {
+            return;
+        }
+
         while (_running && !token.IsCancellationRequested && RemainingWindow() > TimeSpan.Zero)
         {
             var config = _config.Current;
@@ -341,13 +383,18 @@ public sealed class PlaybackEngine : IAsyncDisposable
 
             var spent = await PlayItemAsync(item, remaining, config, token).ConfigureAwait(false);
 
+            if (ConsumeInterrupt())
+            {
+                return;
+            }
+
             if (_advanceRequested)
             {
                 _advanceRequested = false;
                 _carriedSeconds = TimeSpan.Zero;
                 _windowStartAt = _clock.Now;
                 _windowEnded = false;
-                SelectIndex((_currentIndex + 1) % _playlist.Count);
+                SelectIndex(StepIndex(_direction));
                 Notify();
                 continue;
             }
@@ -359,10 +406,38 @@ public sealed class PlaybackEngine : IAsyncDisposable
             }
 
             _carriedSeconds = TimeSpan.Zero;
-            SelectIndex((_currentIndex + 1) % _playlist.Count);
+            SelectIndex(StepIndex(1));
             Notify();
         }
     }
+
+    /// <summary>消费一次「打断本轮」请求：本轮立即结束，且必须灭一次屏。</summary>
+    private bool ConsumeInterrupt()
+    {
+        if (!_interruptRequested)
+        {
+            return false;
+        }
+
+        _interruptRequested = false;
+        _advanceRequested = false;
+        _windowEnded = true;
+        _forcedBlackout = true;
+        return true;
+    }
+
+    /// <summary>按方向取相邻条目下标（循环）。</summary>
+    private int StepIndex(int direction)
+    {
+        var count = _playlist.Count;
+        if (count == 0)
+        {
+            return -1;
+        }
+
+        return ((_currentIndex + direction) % count + count) % count;
+    }
+
 
     /// <summary>播放单条，返回该条实际占用时长；窗口到点或手动切换会提前返回。</summary>
     private async Task<TimeSpan> PlayItemAsync(NewsItem item, TimeSpan limit, AppConfig config, CancellationToken token)
@@ -423,14 +498,22 @@ public sealed class PlaybackEngine : IAsyncDisposable
         }
 
         using var itemCts = CancellationTokenSource.CreateLinkedTokenSource(token);
-        var speakTask = _speech.SpeakAsync(text, config.SpeechRate, config.SpeechPitch, config.SpeechLanguage, itemCts.Token);
-        var deadlineTask = DeliverAfterAsync(limit, token);
-
+        _speakCts = itemCts;
         try
         {
-            var completed = await Task.WhenAny(speakTask, deadlineTask).ConfigureAwait(false);
+            var speakTask = _speech.SpeakAsync(text, config.SpeechRate, config.SpeechPitch, config.SpeechLanguage, itemCts.Token);
+            var deadlineTask = DeliverAfterAsync(limit, token);
+            var advanceTask = _advanceTcs.Task;
 
-            if (completed == deadlineTask)
+            var completed = await Task.WhenAny(speakTask, deadlineTask, advanceTask).ConfigureAwait(false);
+
+            if (completed == advanceTask)
+            {
+                // 手动切条 / 打断本轮：立刻停朗读
+                itemCts.Cancel();
+                await StopSpeechQuietlyAsync().ConfigureAwait(false);
+            }
+            else if (completed == deadlineTask)
             {
                 if (config.WindowEndBehavior == WindowEndBehavior.InterruptImmediately)
                 {
@@ -450,11 +533,20 @@ public sealed class PlaybackEngine : IAsyncDisposable
         catch (OperationCanceledException)
         {
         }
+        finally
+        {
+            if (ReferenceEquals(_speakCts, itemCts))
+            {
+                _speakCts = null;
+            }
+        }
     }
 
     /// <summary>窗口到点：黑屏 + 停朗读 + 等黑屏时长；黑屏期间不动常亮状态。</summary>
     private async Task EnterBlackoutAsync(AppConfig config, CancellationToken token)
     {
+        // 黑屏期间再按「打断」不当作一次新打断（否则会把黑屏等待也打断掉）
+        _interruptRequested = false;
         _phase = PlaybackPhase.Blackout;
         _inQuietHours = IsQuietHours(config.QuietHours, _clock.Now);
         Notify();
@@ -478,6 +570,44 @@ public sealed class PlaybackEngine : IAsyncDisposable
     {
         var remaining = RemainingWindow();
         await DeliverAfterAsync(remaining, token).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 播放列表为空时的等待：每 500ms 复查仓储，出现条目立刻返回 <c>true</c>（不等窗口到点）；
+    /// 窗口到点或被打断则返回 <c>false</c>，交回主循环走正常黑屏流程。
+    /// </summary>
+    private async Task<bool> WaitForDataOrWindowEndAsync(CancellationToken token)
+    {
+        while (_running && !token.IsCancellationRequested)
+        {
+            ReloadPlaylist();
+            if (_playlist.Count > 0)
+            {
+                return true;
+            }
+
+            if (ConsumeInterrupt())
+            {
+                return false;
+            }
+
+            if (_advanceRequested)
+            {
+                _advanceRequested = false;
+                return false;
+            }
+
+            if (RemainingWindow() <= TimeSpan.Zero)
+            {
+                _windowEnded = true;
+                return false;
+            }
+
+            var slice = _clock.Now + TimeSpan.FromMilliseconds(500);
+            await WaitForSignalAsync(slice, null, token).ConfigureAwait(false);
+        }
+
+        return false;
     }
 
     // ---------------- 语音可用性 / 静音时段 ----------------
@@ -614,9 +744,41 @@ public sealed class PlaybackEngine : IAsyncDisposable
     private void RequestAdvance()
     {
         _advanceRequested = true;
+        CancelSpeech();
         var tcs = _advanceTcs;
         _advanceTcs = NewSignal();
         tcs.TrySetResult();
+    }
+
+    /// <summary>打断在途朗读：手动切条/打断本轮必须立刻生效，不能等念完。</summary>
+    private void CancelSpeech()
+    {
+        var cts = _speakCts;
+        if (cts is null)
+        {
+            return;
+        }
+
+        try
+        {
+            cts.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+
+        _ = StopSpeechQuietlyAsync();
+    }
+
+    private async Task StopSpeechQuietlyAsync()
+    {
+        try
+        {
+            await _speech.StopAsync().ConfigureAwait(false);
+        }
+        catch
+        {
+        }
     }
 
     private bool Stopped(CancellationToken token) => token.IsCancellationRequested || !_running;

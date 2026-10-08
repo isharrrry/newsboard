@@ -376,7 +376,8 @@ stateDiagram-v2
 |---|---|---|---|
 | T0 | **实测联网搜索端点** | curl `{BaseUrlSearch}/v1/messages` + `web_search` 工具，确认返回真实搜索结果；不通则永久走通道 B | ✅ **已完成**：返回 `server_tool_use` + `web_search_tool_result`（真实检索结果），通道 A 可用；`deepseek-chat` → 后端 `deepseek-v4-flash` |
 | T1 | **三项目骨架 + 环境就绪** | `NewsBoard.sln` 三项目编译通过；WPF 版 `dotnet run` 起窗口显示 Razor 页；MAUI 版出 APK 装进手机能启动 | 🟡 **编译与打包通过，装机未验**：`dotnet build NewsBoard.slnx`（含 MAUI/Android）**0 警告 0 错误**；WPF 实机运行：进程存活、`MainWindowTitle=新闻看板`、`msedgewebview2` 子进程 12 个；Android 产出 `com.newsboard.app-Signed.apk` **14.96 MB**，但**本机无设备/模拟器**（`adb devices` 为空）⇒ 装机启动无法验证 |
-| T2 | Shared 空壳：BlazorWebView 宿主（两端） | Android 默认是带系统状态栏的纯色页，设置里开沉浸全屏后状态栏消失；WPF 默认是带标题栏的窗口，开无边框全屏后铺满屏幕、可退出 | 🟡 **Windows 侧通过**：默认 `1600x1000@(160,10)` 带标题栏 → F11 `1920x1080@(0,0)` 铺满 → Esc 还原，配置同步落盘（`WindowsBorderlessFullscreen` 真值往返）；**Blazor 渲染实机截图**：大字新闻卡片（关键字标签 + 时钟 + 大字标题/摘要 + 设置齿轮）已在 WebView2 中正常显示。**局限**：按键经 `WM_KEYDOWN` 投递（SendKeys 在本机送不进该窗口），且本轮全程未人工按键；Android 状态栏/沉浸式未装机。另修掉两个真缺陷：WebView2 抢焦点后 WPF 收不到键盘（加 JS→宿主消息桥）、两端 `index.html` 未引入 `measure.js` |
+| T2 | Shared 空壳：BlazorWebView 宿主（两端） | Android 默认是带系统状态栏的纯色页，设置里开沉浸全屏后状态栏消失；WPF 默认是带标题栏的窗口，开无边框全屏后铺满屏幕、可退出 | 🟡 **两个 Windows 宿主都实机跑通**：WPF 默认 `1600x1000@(160,10)` 带标题栏 → F11 `1920x1080@(0,0)` 铺满 → Esc 还原，配置同步落盘；**MAUI(Windows) 头**（`net10.0-windows10.0.19041.0`，非打包运行）进程存活、窗口标题「新闻看板」、`msedgewebview2` 12 个子进程、真实新闻渲染截图在案。两者画面均为：顶部关键字标签**一条** + 时钟 + 大字标题/摘要，右下角**横排 5 个图标按钮**（上一条/下一条/打开原文/打断/设置）。**局限**：Android 侧状态栏/沉浸式未装机；F11/Esc 的按键证据来自 `WM_KEYDOWN` 投递（SendKeys 在本机送不进该窗口），未人工按键。修掉的真缺陷见下方联调记录 |
+
 | T3 | `IScreenController`（Android 实现）：常亮 + 亮度 0 + 恢复 | 手动触发黑屏，静置 6 分钟：屏幕不锁、不自动息屏；WPF 用空实现不报错 | 🟡 WPF 空实现参与启动/全屏链路无异常；Android `AndroidScreenController`（KeepScreenOn + 窗口亮度 0 + 黑屏不动 KeepScreenOn）已实现，**未装机验证** |
 | T4 | `AppConfig` + 设置页 + 持久化 + `ISecretStore` | 改配置 → 杀进程重启配置还在；Key 两端都不落 JSON 明文 | 🟡 **读取侧端到端已实测**：手工预置 `%LOCALAPPDATA%\NewsBoard\config.json`（只写 3 个字段）→ 启动发布版 → **窗口变为 `1920x1080@(0,0)` 无边框全屏**（配置真被应用），缺字段补默认（宽容读盘）；读回 JSON 确认 **无 `ApiKey` 键**、值保持。写入侧：`ConfigStore` 13 项单测（全字段往返、无 ApiKey 键、坏文件降级）+ SA4 的 F11/Esc 实测写出 `True`/`False`。WPF DPAPI 密文 278B 实测不含明文。**未做**「在设置页 UI 上改完再杀进程重启」的自动化验证（UI 注入受限） |
 | T4b | 开机自启（Android `BootReceiver`+前台服务；WPF 注册表 Run） | 两端各重启一次机器：App 自动起来并开始轮播；Android 上确认不被厂商自启动管理拦掉 | 🟡 WPF：HKCU Run 键 Enable→IsEnabled→Disable 往返实测通过（无残留），`IAutoStart` 已接设置页；Android：`BootReceiver` + 前台服务 + 全屏通知已实现（不走 `StartActivity`）。**未做**重启机器验证 |
@@ -397,6 +398,15 @@ stateDiagram-v2
 > 1. **抓取调度器缺失**：`NewsFetchCoordinator` 已注册但全项目无人调用 ⇒ 应用永远停在「正在获取新闻…」。已补 `NewsFetchScheduler`（启动即抓一次 + 按「抓取间隔」循环，失败只记警告不外抛），由 `InitializeNewsBoardAsync` 拉起，并配 3 个单测。
 > 2. **两端 `index.html` 都没引入 `measure.js`** ⇒ `window.newsBoard` 不存在，溢出滚动静默失效。已补 `<script src="_content/NewsBoard.Shared/js/measure.js">`。
 > 3. **`measure.js` 与调用方参数不匹配**：`measure(id)` 收 id，而 `startScroll/finishScroll/stopScroll` 只收元素对象，`Display.razor` 传的是 id 字符串 ⇒ 滚动拿到 `NaN` 距离、静默不动。已让四个 API 同时接受 id 与元素。
+
+> **第 7 轮补充（2026-10-08，用户追加需求）**：
+> 1. **MAUI 宿主可在 Windows 下运行**：`NewsBoard.Maui` 加 `net10.0-windows10.0.19041.0` 头（`WindowsPackageType=None` 非打包）+ `Platforms/Windows/**` 五个平台实现（Screen/Speech/Secret/AutoStart/LinkOpener）+ WinUI 引导（`App.xaml`/`App.xaml.cs`/`app.manifest`），`MauiProgram` 改为按平台条件注册。实测：进程存活、标题「新闻看板」、12 个 WebView2 子进程、真实新闻渲染截图。
+>    期间修掉：① Android 头专属代码（`Android.Util.Log`）泄漏到 Windows 编译；② `index.html` 的 `blazor.webview.js` 带 `autostart="false"` 时 Windows 头不替我们启动，页面永远停在「正在启动…」→ 显式 `Blazor.start()`。
+> 2. **播放页手动控制条**（横排图标，含设置入口）：`⏮ 上一条`、`⏭ 下一条`、`🔗 在浏览器打开原文`、`⏸ 打断本轮`、`⚙ 设置`。引擎新增 `PreviousAsync()` / `InterruptAsync()`，并让**朗读可被立刻打断**（原来按「下一条」要等念完）。新增 `ILinkOpener` 抽象 + WPF/Android/Windows 三份实现。
+> 3. **画面只保留一条标题**：关键字标签原先在页面顶部与卡片内各显示一次（截图可见同一行文字出现两遍），已删除卡片内那份。
+> 4. **修掉「首轮抓到的新闻要等满一个窗口才显示」**：引擎只在窗口边界重载播放列表，导致缓存为空时画面长时间停在「正在获取新闻…」（实测截图复现）。现在列表为空时每 500ms 复查仓储，拿到第一批条目立即开播。
+> 5. **测试**：新增 `PlaybackControlTests`（9 条：上一条/下一条/回绕、朗读中切条即时生效、朗读中打断、打断→黑屏→下一轮、关闭亮熄循环仍灭一次屏、黑屏中重复打断不打断黑屏、首轮命中数据立刻开播）；把播放引擎相关测试放进同一 xunit collection 串行执行（并发抢 CPU 会让缩放时钟的时间断言抖动）。`dotnet test` **113/113，连续 3 次全绿（11s）**；`dotnet build NewsBoard.slnx`（WPF + MAUI/Android + MAUI/Windows 三头）**0 警告 0 错误**。
+
 
 **实施顺序**：T0（决定通道）→ T1–T3（打通「能装、能黑屏、不锁屏」核心链路）→ T8/T9（TTS 与状态机）→ 其余。
 

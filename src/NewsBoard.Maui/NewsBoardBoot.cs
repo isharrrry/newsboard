@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using NewsBoard.Shared.Services;
 
 namespace NewsBoard.Maui;
@@ -27,7 +28,7 @@ public static class NewsBoardBoot
             }
             catch (Exception ex)
             {
-                Android.Util.Log.Error("NewsBoard", $"初始化失败：{ex}");
+                Debug.WriteLine($"[NewsBoard] 初始化失败：{ex}");
                 Gate.TrySetResult(false);
             }
         });
@@ -42,7 +43,7 @@ public static class NewsBoardBoot
         }
         catch (TimeoutException)
         {
-            Android.Util.Log.Warn("NewsBoard", "启动初始化超时，先显示看板");
+            Debug.WriteLine("[NewsBoard] 启动初始化超时，先显示看板");
         }
     }
 }
