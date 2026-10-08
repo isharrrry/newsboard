@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/NewsBoard.Shared/NewsBoard.Shared.csproj" />
+    <Project Path="src/NewsBoard.Tests/NewsBoard.Tests.csproj" />
+    <Project Path="src/NewsBoard.Wpf/NewsBoard.Wpf.csproj" />
+  </Folder>
+</Solution>
