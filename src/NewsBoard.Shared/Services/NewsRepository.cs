@@ -22,6 +22,7 @@ public sealed class NewsRepository : INewsRepository
     private int _version;
     private List<NewsItem>? _randomPlaylist;
     private int _randomPlaylistVersion = -1;
+    private double _randomPlaylistThreshold = double.NaN;
 
     public NewsRepository(string? directory = null)
     {
@@ -146,6 +147,8 @@ public sealed class NewsRepository : INewsRepository
                     if (!string.IsNullOrWhiteSpace(item.Source)) existing.Source = item.Source;
                     if (!string.IsNullOrWhiteSpace(item.ImageUrl)) existing.ImageUrl = item.ImageUrl;
                     if (item.PublishedAt != default) existing.PublishedAt = item.PublishedAt;
+                    if (item.Importance is not null) existing.Importance = item.Importance;
+                    if (!string.IsNullOrWhiteSpace(item.RawContent)) existing.RawContent = item.RawContent;
                 }
                 else
                 {
@@ -190,21 +193,29 @@ public sealed class NewsRepository : INewsRepository
     {
         lock (_gate)
         {
-            var all = _byId.Values.ToList();
+            // 先按重要度门槛过滤，再排序：Importance 为 null（未评分，例如旧缓存或 AI 全失败）
+            // 一律保留，避免升级后被当成低分把整库清空。
+            var playlist = _byId.Values
+                .Where(i => i.Importance is not { } importance || importance >= config.ImportanceThreshold)
+                .ToList();
 
             switch (config.PlayOrder)
             {
                 case PlayOrder.ByPublishTime:
-                    return all
+                    return playlist
                         .OrderByDescending(i => i.PublishedAt)
                         .ThenBy(i => i.Id, StringComparer.Ordinal)
                         .ToList();
 
                 case PlayOrder.Random:
-                    if (_randomPlaylist is null || _randomPlaylistVersion != _version)
+                    // 门槛也算进缓存键：改门槛（设置页）要立刻生效，不能返回上一轮的缓存
+                    if (_randomPlaylist is null
+                        || _randomPlaylistVersion != _version
+                        || _randomPlaylistThreshold != config.ImportanceThreshold)
                     {
-                        _randomPlaylist = Shuffle(all);
+                        _randomPlaylist = Shuffle(playlist);
                         _randomPlaylistVersion = _version;
+                        _randomPlaylistThreshold = config.ImportanceThreshold;
                     }
 
                     return [.. _randomPlaylist];
@@ -213,7 +224,7 @@ public sealed class NewsRepository : INewsRepository
                     var rank = new Dictionary<string, int>(StringComparer.Ordinal);
                     for (var i = 0; i < config.Keywords.Count; i++) rank[config.Keywords[i].Trim()] = i;
 
-                    return all
+                    return playlist
                         .OrderBy(i => rank.TryGetValue(i.Keyword, out var index) ? index : int.MaxValue)
                         .ThenBy(i => i.Keyword, StringComparer.Ordinal)
                         .ThenByDescending(i => i.PublishedAt)

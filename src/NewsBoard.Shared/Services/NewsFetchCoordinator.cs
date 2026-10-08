@@ -28,7 +28,6 @@ public sealed class NewsFetchCoordinator
     private const string RssChannel = "RSS";
     private const string WebSearchChannel = "模型联网搜索";
     private const int MaxConcurrency = 3;
-    private static readonly TimeSpan Retention = TimeSpan.FromDays(3);
 
     private readonly Dictionary<string, INewsSource> _sources = new(StringComparer.Ordinal);
     private readonly NewsSummarizer _summarizer;
@@ -120,6 +119,10 @@ public sealed class NewsFetchCoordinator
             }
         }
 
+        // 先清过期（保留天数来自配置，默认 3 天）：清掉的 URL 同时从去重集合移除，
+        // 所以本轮就能重新抓回来，不会被永久挡住。
+        _repository.PruneExpired(now, TimeSpan.FromDays(Math.Max(1, config.RetentionDays)));
+
         var fresh = raw
             .Where(r => !string.IsNullOrWhiteSpace(r.Url) && !_repository.Contains(r.Url))
             .ToList();
@@ -141,6 +144,8 @@ public sealed class NewsFetchCoordinator
                     Source = r.Source,
                     PublishedAt = r.PublishedAt ?? now,
                     FetchedAt = now,
+                    RawContent = NewsSummarizer.TruncateRawContent(r.Description),
+                    Importance = r.Importance,
                 }));
             if (newItems.Count > 0) summarizedCount = 0;
         }
@@ -159,15 +164,23 @@ public sealed class NewsFetchCoordinator
             summarizedCount = newItems.Count;
         }
 
+        // 本轮两条通道的全部新条目一起做重要度均衡：模型常给出一整批雷同的分数，
+        // 这里按秩拉开差距，免得门槛过滤后「要么全留、要么全丢」。
+        ApplyBalancedImportance(newItems);
+
         if (aiCalled) _repository.MarkAiCalled(now);
 
         if (newItems.Count > 0)
         {
             _repository.AddOrUpdateRange(newItems);
-            _repository.PruneExpired(now, Retention);
             await _repository.SaveAsync(cancellationToken).ConfigureAwait(false);
 
             await _imageResolver.ApplyImagesAsync(newItems, config, cancellationToken).ConfigureAwait(false);
+            await _repository.SaveAsync(cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            // 本轮没有新条目也要落盘：上面的过期清理可能刚删掉了东西
             await _repository.SaveAsync(cancellationToken).ConfigureAwait(false);
         }
 
@@ -179,6 +192,15 @@ public sealed class NewsFetchCoordinator
             Channel = channel,
             Warning = warning,
         };
+    }
+
+    /// <summary>对一轮的全部新条目做重要度均衡（纯本地计算，null 保持 null）。</summary>
+    private static void ApplyBalancedImportance(List<NewsItem> items)
+    {
+        if (items.Count == 0) return;
+
+        var balanced = ImportanceScoring.Balance([.. items.Select(i => i.Importance)]);
+        for (var i = 0; i < items.Count; i++) items[i].Importance = balanced[i];
     }
 
     private INewsSource? FindSource(string name)

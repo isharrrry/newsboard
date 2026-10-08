@@ -75,6 +75,7 @@ public sealed class WebSearchNewsSource : INewsSource
                 Source = "联网搜索",
                 PreSummarized = summary,
                 PublishedAt = now,
+                Importance = ImportanceScoring.Read(element),
             });
         }
 
@@ -84,14 +85,20 @@ public sealed class WebSearchNewsSource : INewsSource
     private static string BuildPrompt(string keyword, AppConfig config)
     {
         var builder = new StringBuilder();
-        builder.AppendLine($"请针对关键字「{keyword}」联网检索当天的新闻，挑选最新 {config.ItemsPerKeyword} 篇。");
+        builder.AppendLine($"请针对关键字「{keyword}」联网检索当天的新闻，挑选最新 {config.ItemsPerKeyword} 篇，并为每一篇给出重要度评分。");
         builder.AppendLine("硬性要求：");
         builder.AppendLine("1. 只依据联网检索到的真实结果，严禁编造标题、链接或内容。");
-        builder.AppendLine($"2. 每条摘要不超过 {config.SummaryMaxChars} 个汉字（写到 {config.SummaryMaxChars - 15}–{config.SummaryMaxChars} 字最好）；写 1–2 句连贯的话：先用一句交代「谁 + 做了什么」，再补一句关键的「数字或结果」，把检索到的最重要事实说清楚，不要复述标题，也不要写成标题的扩写。");
-        builder.AppendLine("3. 用陈述语气直接叙述事实，不要写「本文」「据报道」「摘要」等字样，不要复述标题。");
-        builder.AppendLine("4. 只输出一个严格的 JSON 数组，不要任何解释文字或 Markdown 围栏，格式为：");
-        builder.AppendLine($"[{{\"title\":\"标题\",\"summary\":\"摘要\",\"url\":\"原文链接\",\"keyword\":\"{keyword}\"}}]");
-        builder.AppendLine("5. 检索不到足够结果时少输出几条即可，不要编造。");
+        builder.AppendLine($"2. {config.SummaryLanguage.PromptRule()}");
+        builder.AppendLine($"3. 每条摘要不超过 {config.SummaryMaxChars} 个汉字（写到 {config.SummaryMaxChars - 15}–{config.SummaryMaxChars} 字最好）；写 1–2 句连贯的话：先用一句交代「谁 + 做了什么」，再补一句关键的「数字或结果」，把检索到的最重要事实说清楚，不要复述标题，也不要写成标题的扩写。");
+        builder.AppendLine("4. 用陈述语气直接叙述事实，不要写「本文」「据报道」「摘要」等字样，不要复述标题。");
+        builder.AppendLine("5. 为每条给出 importance（0.00–1.00，两位小数）：表示「这一条相对于最近三天全部候选新闻的重要程度」。");
+        builder.AppendLine("   - 必须拉开差距：同批里既有高分也有低分，不要都给同一个分数，也不要大量堆在高端或低端。");
+        builder.AppendLine("   - 重大事件（重大政策、灾害事故、战争冲突、重大科技突破、影响面广的民生事件）给 0.80–1.00。");
+        builder.AppendLine("   - 例行消息（常规数据发布、日常运营通报、行业小动态、活动预告）给 0.20–0.50。");
+        builder.AppendLine("   - 其余按对普通读者的实际影响落在中间区间。");
+        builder.AppendLine("6. 只输出一个严格的 JSON 数组，不要任何解释文字或 Markdown 围栏，格式为：");
+        builder.AppendLine($"[{{\"title\":\"标题\",\"summary\":\"摘要\",\"url\":\"原文链接\",\"importance\":0.82,\"keyword\":\"{keyword}\"}}]");
+        builder.AppendLine("7. 检索不到足够结果时少输出几条即可，不要编造。");
         return builder.ToString();
     }
 }
