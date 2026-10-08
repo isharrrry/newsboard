@@ -3,10 +3,10 @@ namespace NewsBoard.Shared.Models;
 /// <summary>采集层拿到的原始条目（未提炼）。</summary>
 public sealed class RawNewsItem
 {
-    public required string Keyword { get; init; }
+    public required string Keyword { get; set; }
     public string? Title { get; init; }
     public string? Url { get; init; }
-    public string? Description { get; init; }
+    public string? Description { get; set; }
     public string? Source { get; init; }
     public DateTimeOffset? PublishedAt { get; init; }
 

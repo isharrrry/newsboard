@@ -23,6 +23,27 @@
         <p class="hint">改动只作用于本页副本，点「保存」才写入。带 <span class="chip warn">自检</span> 的按钮只在本机试一下，不改配置。</p>
 
         <section class="group">
+            <h2>显示模式</h2>
+
+            <div class="settings-card">
+            <div class="row">
+                <label for="playbackMode">播放模式</label>
+                <select id="playbackMode" @bind="_edit.PlaybackMode">
+                    <option value="@PlaybackMode.TextOnly">纯文字</option>
+                    <option value="@PlaybackMode.TextAndImage">文字+图片</option>
+                </select>
+                <span class="desc">「文字+图片」＝图文模式。取不到正文配图的条目按纯文字显示，不会拿站点模板图凑数。</span>
+            </div>
+
+            <div class="row">
+                <label for="showImages">显示新闻图片（图文模式）</label>
+                <input id="showImages" type="checkbox" @bind="ShowImages" />
+                <span class="desc">与上面的「播放模式」是同一开关：勾上＝文字+图片，取消＝纯文字。</span>
+            </div>
+            </div>
+        </section>
+
+        <section class="group">
             <h2>API / 采集</h2>
 
             <div class="settings-card">
@@ -257,12 +278,6 @@
                 <label for="showSource">显示新闻来源</label>
                 <input id="showSource" type="checkbox" @bind="_edit.ShowSource" />
             </div>
-
-            <div class="row">
-                <label for="showImages">显示新闻图片（图文模式）</label>
-                <input id="showImages" type="checkbox" @bind="ShowImages" />
-                <span class="desc">等同于「播放 / 语音」里的播放模式：勾上＝文字+图片，取消＝纯文字。</span>
-            </div>
             </div>
         </section>
 
@@ -270,15 +285,6 @@
             <h2>播放 / 语音</h2>
 
             <div class="settings-card">
-            <div class="row">
-                <label for="playbackMode">播放模式</label>
-                <select id="playbackMode" @bind="_edit.PlaybackMode">
-                    <option value="@PlaybackMode.TextOnly">纯文字</option>
-                    <option value="@PlaybackMode.TextAndImage">文字+图片</option>
-                </select>
-                <span class="desc">图文模式取不到图时自动退化为纯文字。</span>
-            </div>
-
             <div class="row">
                 <label for="speechEnabled">启用语音播报</label>
                 <input id="speechEnabled" type="checkbox" @bind="_edit.SpeechEnabled" />

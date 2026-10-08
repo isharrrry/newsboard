@@ -151,6 +151,11 @@ public class PlaybackControlTests
         var b = Build(showSeconds: 30);
         await b.Engine.StartAsync();
         await WaitUntilAsync(() => b.Engine.Current is not null);
+
+        // 先等首条真正开播：Current 先由选条设置、随后 PlayItemAsync 会再设一次起点，
+        // 紧跟着取基线会拿到前一个时间戳（差了不到 1ms）——这是竞态，不是「重新起算窗口」。
+        await Task.Delay(250);
+
         var itemId = b.Engine.Current!.Id;
         var startedAt = b.Engine.CurrentStartedAt;
 

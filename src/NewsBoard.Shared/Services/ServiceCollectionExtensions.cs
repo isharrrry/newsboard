@@ -25,6 +25,7 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton<NewsSummarizer>();
         services.AddSingleton<ImageResolver>();
+        services.AddSingleton<ArticleContentFetcher>();
 
         services.AddSingleton<INewsSource, RssNewsSource>();
         services.AddSingleton<INewsSource, WebSearchNewsSource>();

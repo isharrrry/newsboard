@@ -199,6 +199,13 @@ public sealed class NewsRepository : INewsRepository
                 .Where(i => i.Importance is not { } importance || importance >= config.ImportanceThreshold)
                 .ToList();
 
+            // 门槛把缓存里的条目全筛掉时，随机补一条「勉强可播」的，免得画面一直停在「正在获取新闻…」。
+            // 补上来的那条摘要末尾带 ~ 后缀，一眼能看出它不是达标条目；给的是副本，不污染缓存里的原文。
+            if (playlist.Count == 0 && _byId.Count > 0)
+            {
+                playlist.Add(WithBelowThresholdMarker(_byId.Values.ElementAt(Random.Shared.Next(_byId.Count))));
+            }
+
             switch (config.PlayOrder)
             {
                 case PlayOrder.ByPublishTime:
@@ -230,6 +237,34 @@ public sealed class NewsRepository : INewsRepository
                         .ThenByDescending(i => i.PublishedAt)
                         .ToList();
             }
+        }
+    }
+
+    /// <summary>不达门槛被勉强补进播放列表的条目，摘要末尾会带这个后缀。</summary>
+    public const string BelowThresholdSuffix = " ~";
+
+    /// <summary>复制一份并把摘要标记为「低于门槛」（<c>NewsRepository</c> 内部维护用）。</summary>
+    private static NewsItem WithBelowThresholdMarker(NewsItem source) => new()
+    {
+        Id = source.Id,
+        Title = source.Title,
+        Summary = source.Summary.TrimEnd() + BelowThresholdSuffix,
+        Url = source.Url,
+        Keyword = source.Keyword,
+        Source = source.Source,
+        PublishedAt = source.PublishedAt,
+        ImageUrl = source.ImageUrl,
+        FetchedAt = source.FetchedAt,
+        RawContent = source.RawContent,
+        Importance = source.Importance,
+    };
+
+    /// <summary>缓存里全部条目的快照（按发布时间从新到旧），供配图去重等维护性操作使用。</summary>
+    public IReadOnlyList<NewsItem> Snapshot()
+    {
+        lock (_gate)
+        {
+            return [.. _byId.Values.OrderByDescending(i => i.PublishedAt)];
         }
     }
 

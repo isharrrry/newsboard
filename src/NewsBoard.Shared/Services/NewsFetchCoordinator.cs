@@ -32,9 +32,18 @@ public sealed class NewsFetchCoordinator
     /// <summary>图文模式下每轮最多为多少条「缓存里还缺图」的旧条目补抓配图。</summary>
     private const int MaxImageBackfill = 8;
 
+    /// <summary>每轮最多为多少条补抓原文正文（控制抓取频率）。</summary>
+    private const int MaxContentBackfill = 5;
+
+    /// <summary>描述短于这个长度就认为「还没拿到正文」，值得去原文页抓一次。</summary>
+    private const int MinDescriptionChars = 300;
+
+    private const int ContentConcurrency = 2;
+
     private readonly Dictionary<string, INewsSource> _sources = new(StringComparer.Ordinal);
     private readonly NewsSummarizer _summarizer;
     private readonly ImageResolver _imageResolver;
+    private readonly ArticleContentFetcher? _contentFetcher;
     private readonly INewsRepository _repository;
     private readonly IConfigProvider _config;
 
@@ -43,12 +52,14 @@ public sealed class NewsFetchCoordinator
         NewsSummarizer summarizer,
         ImageResolver imageResolver,
         INewsRepository repository,
-        IConfigProvider config)
+        IConfigProvider config,
+        ArticleContentFetcher? contentFetcher = null)
     {
         foreach (var source in sources) _sources[source.Name] = source;
 
         _summarizer = summarizer;
         _imageResolver = imageResolver;
+        _contentFetcher = contentFetcher;
         _repository = repository;
         _config = config;
     }
@@ -122,13 +133,27 @@ public sealed class NewsFetchCoordinator
             }
         }
 
-        // 先清过期（保留天数来自配置，默认 3 天）：清掉的 URL 同时从去重集合移除，
-        // 所以本轮就能重新抓回来，不会被永久挡住。
-        _repository.PruneExpired(now, TimeSpan.FromDays(Math.Max(1, config.RetentionDays)));
+        // 先清过期（保留天数来自配置，默认 3 天，按自然日分桶：今天 + 前两天）：清掉的 URL
+        // 同时从去重集合移除，所以本轮就能重新抓回来，不会被永久挡住。
+        _repository.PruneExpired(now, RetentionWindow.RetentionSpan(now, config.RetentionDays));
+
+        // 共享频道源抓回整频道，条目只带频道名当分类；按配置的关键字重新归类，
+        // 画面上那条标签才是「武汉 / AI」这种真正的分类（标题优先，描述兜底）。
+        if (channel == RssChannel && !RssNewsSource.HasKeywordPlaceholder(config.RssTemplate))
+        {
+            foreach (var item in raw)
+            {
+                item.Keyword = KeywordClassifier.Classify(item.Title, item.Description, keywords, item.Keyword);
+            }
+        }
 
         var fresh = raw
             .Where(r => !string.IsNullOrWhiteSpace(r.Url) && !_repository.Contains(r.Url))
             .ToList();
+
+        // 能抓到正文的尽量抓：RSS 的 description 常常只有几十字（甚至只是标题复述），
+        // 联网搜索通道更是一个字都没有。抓到的正文既用来提炼（摘要质量的关键），也随条目一起存下来。
+        await BackfillRawContentAsync(fresh, keywords, cancellationToken).ConfigureAwait(false);
 
         var newItems = new List<NewsItem>();
         var summarizedCount = 0;
@@ -178,18 +203,13 @@ public sealed class NewsFetchCoordinator
             _repository.AddOrUpdateRange(newItems);
             await _repository.SaveAsync(cancellationToken).ConfigureAwait(false);
 
-            await _imageResolver.ApplyImagesAsync(WithCachedMissingImages(newItems, config), config, cancellationToken).ConfigureAwait(false);
+            await ApplyImagesAsync(newItems, config, cancellationToken).ConfigureAwait(false);
             await _repository.SaveAsync(cancellationToken).ConfigureAwait(false);
         }
         else if (config.PlaybackMode == PlaybackMode.TextAndImage)
         {
             // 本轮没新条目：也把缓存里还缺图的旧条目补上（切到图文模式后旧条目同样要出图）
-            var backfill = WithCachedMissingImages([], config);
-            if (backfill.Count > 0)
-            {
-                await _imageResolver.ApplyImagesAsync(backfill, config, cancellationToken).ConfigureAwait(false);
-            }
-
+            await ApplyImagesAsync([], config, cancellationToken).ConfigureAwait(false);
             await _repository.SaveAsync(cancellationToken).ConfigureAwait(false);
         }
         else
@@ -219,6 +239,77 @@ public sealed class NewsFetchCoordinator
 
     private INewsSource? FindSource(string name)
         => _sources.TryGetValue(name, out var source) ? source : null;
+
+    /// <summary>
+    /// 为描述太短的条目补抓原文正文（每轮最多 <see cref="MaxContentBackfill"/> 条、并发 2）。
+    /// 抓到就把正文写回描述（提炼与入库都用它），并用正文重新归一次类 ——
+    /// 标题里没写关键字的新闻，往往在正文里才看得出属于哪个分类。
+    /// </summary>
+    private async Task BackfillRawContentAsync(
+        List<RawNewsItem> fresh,
+        IReadOnlyList<string> keywords,
+        CancellationToken cancellationToken)
+    {
+        if (_contentFetcher is null) return;
+
+        var targets = fresh
+            .Where(r => !string.IsNullOrWhiteSpace(r.Url))
+            .Where(r => (r.Description?.Length ?? 0) < MinDescriptionChars)
+            .Take(MaxContentBackfill)
+            .ToList();
+
+        if (targets.Count == 0) return;
+
+        using var gate = new SemaphoreSlim(ContentConcurrency);
+        var tasks = targets.Select(async item =>
+        {
+            await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                var text = await _contentFetcher.FetchAsync(item.Url!, cancellationToken).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(text)) return;
+
+                item.Description = text;
+                item.Keyword = KeywordClassifier.Classify(item.Title, text, keywords, item.Keyword);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // 正文抓取失败不影响本轮抓取：条目照旧用 RSS 的描述走。
+            }
+            finally
+            {
+                gate.Release();
+            }
+        });
+
+        await Task.WhenAll(tasks).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 本轮配图：先把缓存里已确认的图去重（同一张图只归一条新闻），再给「新条目 + 缓存里缺图的旧条目」补抓，
+    /// 且新抓的图不得复用在挂的图 —— 拿不到独占配图的条目按「正文没图」处理：宁可不出图，也不出重复图。
+    /// </summary>
+    private async Task ApplyImagesAsync(
+        IReadOnlyList<NewsItem> newItems,
+        AppConfig config,
+        CancellationToken cancellationToken)
+    {
+        if (config.PlaybackMode != PlaybackMode.TextAndImage) return;
+
+        // Snapshot 返回的是同批条目引用，去重会直接改到缓存里的对象上（正是要的效果：清掉历史重复图）。
+        var all = _repository is NewsRepository repository ? repository.Snapshot() : _repository.GetPlaylist(config);
+        ImageResolver.DedupeImages(all);
+
+        var reserved = all
+            .Where(i => !string.IsNullOrWhiteSpace(i.ImageUrl))
+            .Select(i => i.ImageUrl!.Trim())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var targets = WithCachedMissingImages(newItems, config);
+        if (targets.Count == 0) return;
+
+        await _imageResolver.ApplyImagesAsync(targets, config, cancellationToken, reserved).ConfigureAwait(false);
+    }
 
     /// <summary>本轮新条目 + 缓存里还缺图的旧条目（每次最多 <see cref="MaxImageBackfill"/> 条）。</summary>
     private List<NewsItem> WithCachedMissingImages(IReadOnlyList<NewsItem> newItems, AppConfig config)

@@ -113,12 +113,18 @@ public sealed class ImageResolver
     }
 
     /// <summary>仅图文模式执行，并发上限 3。</summary>
+    /// <param name="reservedImageUrls">已被占用的配图（例如缓存里别的条目已确认的图）——同一张图不允许出现在两条新闻里。</param>
     public async Task ApplyImagesAsync(
         IReadOnlyList<NewsItem> items,
         AppConfig config,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyCollection<string>? reservedImageUrls = null)
     {
         if (config.PlaybackMode != PlaybackMode.TextAndImage || items.Count == 0) return;
+
+        var used = reservedImageUrls is null
+            ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(reservedImageUrls, StringComparer.OrdinalIgnoreCase);
 
         using var gate = new SemaphoreSlim(MaxConcurrency);
         var tasks = items
@@ -128,7 +134,13 @@ public sealed class ImageResolver
                 await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
                 try
                 {
-                    item.ImageUrl = await ResolveAsync(item.Url, cancellationToken).ConfigureAwait(false);
+                    var resolved = await ResolveAsync(item.Url, cancellationToken).ConfigureAwait(false);
+
+                    // 这张图已经被别的条目占了 ⇒ 认定是站点模板图/列表图，本条按「正文没图」处理（不显示图）。
+                    lock (used)
+                    {
+                        item.ImageUrl = resolved is not null && used.Add(resolved) ? resolved : null;
+                    }
                 }
                 finally
                 {
@@ -137,6 +149,30 @@ public sealed class ImageResolver
             });
 
         await Task.WhenAll(tasks).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 同一张配图只留给一条新闻：按发布时间从新到旧保留第一条，其余清空 ImageUrl（等于「正文没图就不显示图」）。
+    /// 实测症状：5 条新闻共用同一张模板图、另有 4 条和 4 条各共用一张。
+    /// </summary>
+    /// <returns>被清空配图的条目数。</returns>
+    public static int DedupeImages(IReadOnlyList<NewsItem> items)
+    {
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var cleared = 0;
+
+        foreach (var item in items.OrderByDescending(i => i.PublishedAt))
+        {
+            if (string.IsNullOrWhiteSpace(item.ImageUrl)) continue;
+
+            if (!used.Add(item.ImageUrl.Trim()))
+            {
+                item.ImageUrl = null;
+                cleared++;
+            }
+        }
+
+        return cleared;
     }
 
     /// <summary>按优先级给出候选配图（og → twitter → link[rel=image_src] → 正文首图…），调用方逐个校验可用性。</summary>

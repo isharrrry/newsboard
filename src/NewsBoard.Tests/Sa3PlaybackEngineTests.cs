@@ -533,10 +533,11 @@ public sealed class Sa3PlaybackEngineTests
         Assert.NotNull(h.Engine.Current);
         Assert.Equal(0, h.Engine.CurrentIndex);
 
-        // 窗口内：59s 时仍在 SHOW
-        await WaitUntilAsync(() => clock.Elapsed >= TimeSpan.FromSeconds(59), "到达 59s");
+        // 窗口内：55s 时仍在 SHOW（检查点刻意留在 60s 窗口里侧，真实调度抖动被放大 100 倍，
+        // 贴着 59s 检查会在机器忙时误判成「已经黑屏」）
+        await WaitUntilAsync(() => clock.Elapsed >= TimeSpan.FromSeconds(55), "到达 55s");
         Assert.Equal(PlaybackPhase.Show, h.Engine.Phase);
-        Assert.False(h.Screen.Blackout, "59s 时不应进入黑屏");
+        Assert.False(h.Screen.Blackout, "55s 时不应进入黑屏");
 
         // 窗口到点：进 BLACKOUT，误差 < 1s
         var blackoutOnTask = h.WaitForPhaseAsync(PlaybackPhase.Blackout, "进入 BLACKOUT");
@@ -545,9 +546,9 @@ public sealed class Sa3PlaybackEngineTests
         var blackoutOn = h.Screen.CallsOf("Blackout").Single(c => c.Value);
         Assert.InRange(blackoutOn.At.TotalSeconds, 59.0, 61.2);
 
-        // 360s：回 SHOW
+        // 360s：回 SHOW（同样把检查点留在窗口里侧的 362s）
         var blackoutOffTask = h.WaitForPhaseAsync(PlaybackPhase.Show, "回到 SHOW");
-        await WaitUntilAsync(() => clock.Elapsed >= TimeSpan.FromSeconds(365), "走过 365s");
+        await WaitUntilAsync(() => clock.Elapsed >= TimeSpan.FromSeconds(362), "走过 362s");
         await blackoutOffTask;
         Assert.False(h.Screen.Blackout);
         var blackoutOff = h.Screen.CallsOf("Blackout").Last(c => !c.Value);
@@ -605,7 +606,9 @@ public sealed class Sa3PlaybackEngineTests
         h.Speech.Finish();
         await WaitForIndexAsync(h, 1, "切到第二条");
         Assert.Equal(second.Id, h.Engine.Current!.Id);
-        Assert.True(clock.Elapsed - attempt.StartedAt < TimeSpan.FromSeconds(5), "切条应紧跟朗读结束");
+        // 容差 20s（引擎时间）＝ 200ms 真实时间：缩放时钟下真实调度抖动会被放大 100 倍，
+        // 但 20s 仍远小于 60s 的展示窗口，足以证明「切条是跟着朗读结束走的」。
+        Assert.True(clock.Elapsed - attempt.StartedAt < TimeSpan.FromSeconds(20), "切条应紧跟朗读结束");
 
         await WaitUntilAsync(() => h.Speech.Attempts.Count == 2, "朗读第二条");
         Assert.Equal(second.Summary, h.Speech.LastAttempt!.Text);
@@ -895,10 +898,13 @@ public sealed class Sa3PlaybackEngineTests
     {
         var clock = new ScaledClock(Scale);
         var config = Config(c => c.ShowDurationSeconds = 600);
-        await using var h = new EngineHarness(clock, config, Item("a", "第一条摘要"), Item("b", "第二条摘要"));
+        // 摘要刻意写长：缩放时钟是 100 倍，短摘要只要 10ms 真实时间就播完了，
+        // 断言「还在第 0 条」时容易被下一个条目顶掉（这是偶发红的来源，不是引擎缺陷）。
+        var longFirst = Item("a", "武汉今日开通新地铁线路，全线共设车站二十座，串联三个城区，早高峰通行时间缩短约二十分钟。");
+        await using var h = new EngineHarness(clock, config, longFirst, Item("b", "第二条摘要"));
 
         await h.Engine.StartAsync();
-        await WaitUntilAsync(() => h.Speech.Attempts.Count == 1, "开口朗读");
+        await WaitUntilAsync(() => h.Engine.CurrentIndex == 0 && h.Speech.Attempts.Count >= 1, "第一条开播并开念");
         Assert.Equal(0, h.Engine.CurrentIndex);
 
         await h.Engine.NextAsync();

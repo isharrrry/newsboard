@@ -93,3 +93,24 @@ Android 工具链在 **`D:\Android`**：JDK 17 于 `D:\Android\jdk-17`、Android
   **类名不能叫 `.card`** —— `app.css` 里的 `.card` 是播放页新闻卡片（`display:flex`），设置页复用它会让所有行挤成一行（实测踩过，排错靠 `HtmlRenderer` 导出真实 HTML + Edge `--headless --dump-dom` 读计算样式定位）。设置页分组容器固定叫 `.settings-card`。
   回归测试：`Sa2SettingsPageTests.Settings_UsesGroupedCardLayout_AndCancelIsBackLink`（断言用 `.settings-card`、不得出现 `class="card"`、取消是 `href="/"` 链接）。
 - 在 WebView2 宿主里做界面验证时：截图用 `PrintWindow` 可用；但**注入鼠标滚轮/按键前必须先在被测窗口内容区点一下拿焦点**，否则事件不会送达 WebView2（实测：不点则滚轮完全无效，点了则 `scrollTop` 从 0 正常增长）。
+- **保留窗口按自然日分桶**（`RetentionWindow.EarliestKeptInstant/RetentionSpan`，纯逻辑）：`RetentionDays=3` ＝ 保留「今天 + 前两天」共 3 个自然日，起点是前天的本地零点（`TimeZoneInfo.Local`）。抓取侧传 `RetentionWindow.RetentionSpan(now, config.RetentionDays)` 给 `PruneExpired`，**签名未变**。与滑动窗口（now − N×24h）的差别：早上 6 点与晚上 23 点看到的是同一批自然日。
+- **分类关键字（画面上那条标签）**：共享频道源（`RssTemplate` 不含 `{q}`）抓回整频道，条目原本只带频道名。现在两道处理：
+  ① `KeywordClassifier.Classify(标题, 描述/正文, 配置关键字, 频道名)` —— 按配置顺序找第一个命中项（标题优先、内容兜底），都不命中才回落到频道名；
+  ② `NewsSummarizer` 提示词第 9 条要求模型为每条输出 `keyword`（从配置关键字里挑最贴合的、原样照抄、都不贴合留空），解析时用 `KeywordClassifier.Match` 做**白名单校验**（防止冒出配置外的自造分类），模型给的优先于字符串匹配。
+  **实测（2026-10-08）**：`Keywords=武汉/AI` + 中新网滚动新闻频道 → 当天 9 条全是国庆/日本/A股类新闻，标题与正文都不含武汉/AI，模型也留空 ⇒ 标签回落成频道名「中新网即时新闻」。**这是「没有命中」而不是「分类丢失」**；要强制只看命中关键字的新闻，需要另加过滤开关（尚未做）。
+- **正文抓取**：`ArticleContentFetcher`（新文件，`FetchAsync` / 静态 `ExtractMainText`；无第三方包、5s 超时、异常一律吞成 null）。`NewsFetchCoordinator.BackfillRawContentAsync` 对本轮新条目中 `Description` < 300 字的、每轮最多 5 条、并发 2 抓原文正文；抓到就**写回 `RawNewsItem.Description`**（⇒ 提炼输入与 `RawContent` 都用正文，摘要质量因此提升），并用正文重新归一次类。
+  **实测**：重建后的 MAUI Windows 跑一轮，9 条里 4 条 `RawContent` > 300 字（302/620/676/868）。子代理单独对真实站点跑 **9/9 成功**（中新网 137–720 字、IT之家 332/944 字），无乱码、无超时；`ExtractMainText` 会砍掉 `(完)` 之后的推荐位。
+  注意：正文 < 60 字一律返回 null ⇒ 极短快讯退回 RSS 描述；本机 .NET 10 **没有** CodePagesEncodingProvider，GBK 站点按 UTF-8 兜底。
+- **同一张配图只能属于一条新闻**：`ImageResolver.DedupeImages(items)`（按发布时间从新到旧保留第一条，其余清空）+ `ApplyImagesAsync(..., reservedImageUrls)`（新抓的图不得复用在挂的图；拿不到独占图就按「正文没图」处理，不显示图）。`NewsFetchCoordinator.ApplyImagesAsync` 每轮先用 `NewsRepository.Snapshot()` 全量去重（`Snapshot` 返回同批引用，去重直接改到缓存对象上）。
+  **实测**：修复前 9/9 有图但 3 组重复（5 条/4 条/4 条各共用一张模板图）；修复后 **5/9 有图、重复组 0**。
+- **门槛过滤后播放列表为空**：`NewsRepository.GetPlaylist` 会随机补一条缓存里的条目（**副本**，不污染缓存），摘要末尾加 `NewsRepository.BelowThresholdSuffix`（`" ~"`）表示「不达标条目」。**实机验证**：把门槛临时调到 0.95 后画面显示「…移送检察机关审查起诉。 ~」。
+- **设置页第一屏就是「显示模式」组**（`id="playbackMode"` 下拉 + `id="showImages"` 图文开关，同源联动）；原来散在「外观 / 播放 / 语音」两处的重复控件已移除（id 未变，`Sa7SettingsOptionsTests` 仍绿）。「图片模式找不到」的问题由此解决。
+- **各版本配置文件与 API Key 位置**（实测代码路径）：
+  | 版本 | 配置 | 新闻缓存 | API Key |
+  |---|---|---|---|
+  | WPF | `%LOCALAPPDATA%\NewsBoard\config.json` | `%LOCALAPPDATA%\NewsBoard\news.json` | `%APPDATA%\NewsBoard\secret.dat`（DPAPI CurrentUser + entropy `NewsBoard.SecretStore.v1`） |
+  | MAUI(Windows) | 同上（**与 WPF 完全共用**） | 同上 | 同上（同一文件，两宿主密钥互通） |
+  | MAUI(Android) | app 私有目录（`Environment.SpecialFolder.LocalApplicationData`，包名 `com.newsboard.app`） | 同左 | MAUI `SecureStorage`（Android Keystore 加密，非明文文件） |
+  Windows 侧自启写在 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`。
+- **时间敏感测试的偶发红（已修稳）**：`Sa3PlaybackEngineTests` / `PlaybackControlTests` 用 `ScaledClock`（**100 倍**）跑，`WaitUntilAsync` 轮询 5ms 真实时间 ＝ 0.5s 引擎时间，机器一忙就会「错过窗口」：`NextAsync_SkipsToFollowingItem` 断言 `CurrentIndex==0` 时首条已播完、`Show60s_ThenBlackout300s...` 贴 59s 检查时实际已过 60s、`SpeechCompletion_IsTheItemClock` 的 5s 容差被调度抖动吃掉、`显示期间点一下屏幕…` 在 `SelectIndex`→`PlayItemAsync` 之间取到前一个时间戳（差 <1ms）。
+  修法：首条摘要写长（拉到 ~40 字）、检查点往窗口里侧挪（59s→55s、365s→362s）、容差 5s→20s、取基线前 `Task.Delay(250)`。**修后连续 5 次全量 220/220 全绿**（修前 4 次里 3 次红）。

@@ -49,6 +49,7 @@ public sealed class NewsSummarizer
             var url = candidate.Url!.Trim();
             string summary;
             double? importance = null;
+            string? aiKeyword = null;
             if (summaries is not null)
             {
                 // 模型没给这条（或给空）就跳过，不退化为标题
@@ -56,6 +57,7 @@ public sealed class NewsSummarizer
                 {
                     summary = SummaryText.Normalize(entry.Summary, config.SummaryMaxChars);
                     importance = entry.Importance;
+                    aiKeyword = entry.Keyword;
                 }
                 else
                 {
@@ -76,7 +78,9 @@ public sealed class NewsSummarizer
                 Title = candidate.Title ?? string.Empty,
                 Summary = summary,
                 Url = url,
-                Keyword = candidate.Keyword,
+                // 模型给的分类优先（它能把「人工智能」归到 AI 这种字面不匹配的情况），
+                // 模型没给就用抓取阶段按标题/正文匹配到的分类。
+                Keyword = aiKeyword ?? candidate.Keyword,
                 Source = candidate.Source,
                 PublishedAt = candidate.PublishedAt ?? now,
                 FetchedAt = now,
@@ -105,7 +109,6 @@ public sealed class NewsSummarizer
     {
         var endpoint = $"{config.BaseUrl.TrimEnd('/')}/chat/completions";
         var prompt = BuildPrompt(keyword, candidates, config);
-
         for (var attempt = 1; attempt <= MaxAttempts; attempt++)
         {
             try
@@ -128,7 +131,7 @@ public sealed class NewsSummarizer
                 if (!response.IsSuccessStatusCode) continue;
 
                 var body = await response.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
-                var parsed = Parse(body);
+                var parsed = Parse(body, config.Keywords);
                 if (parsed is not null) return parsed;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -144,11 +147,11 @@ public sealed class NewsSummarizer
         return null;
     }
 
-    /// <summary>模型单条产出的解析结果：摘要 + 重要度（未给分时为 null）。</summary>
-    private readonly record struct AiSummary(string Summary, double? Importance);
+    /// <summary>模型单条产出的解析结果：摘要 + 重要度 + 分类关键字（未给时为 null）。</summary>
+    private readonly record struct AiSummary(string Summary, double? Importance, string? Keyword);
 
-    /// <summary>返回 url → (摘要, 重要度)（可能为空字典）；响应结构不可用时返回 null 表示失败。</summary>
-    private static Dictionary<string, AiSummary>? Parse(string body)
+    /// <summary>返回 url → (摘要, 重要度, 分类关键字)（可能为空字典）；响应结构不可用时返回 null 表示失败。</summary>
+    private static Dictionary<string, AiSummary>? Parse(string body, IReadOnlyList<string> keywords)
     {
         var result = new Dictionary<string, AiSummary>(StringComparer.Ordinal);
         string? content;
@@ -175,7 +178,10 @@ public sealed class NewsSummarizer
             var url = AiJson.GetString(element, "url")?.Trim();
             var summary = AiJson.GetString(element, "summary");
             if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(summary)) continue;
-            result[url] = new AiSummary(summary, ImportanceScoring.Read(element));
+            result[url] = new AiSummary(
+                summary,
+                ImportanceScoring.Read(element),
+                KeywordClassifier.Match(AiJson.GetString(element, "keyword"), keywords));
         }
 
         return result;
@@ -195,9 +201,17 @@ public sealed class NewsSummarizer
         builder.AppendLine("   - 重大事件（重大政策、灾害事故、战争冲突、重大科技突破、影响面广的民生事件）给 0.80–1.00。");
         builder.AppendLine("   - 例行消息（常规数据发布、日常运营通报、行业小动态、活动预告）给 0.20–0.50。");
         builder.AppendLine("   - 其余按对普通读者的实际影响落在中间区间。");
-        builder.AppendLine("6. 只输出一个严格的 JSON 数组，不要任何解释文字或 Markdown 围栏，元素形如 {\"url\":\"原文链接\",\"summary\":\"摘要\",\"importance\":0.82}。");
+        builder.AppendLine("6. 只输出一个严格的 JSON 数组，不要任何解释文字或 Markdown 围栏，元素形如 {\"url\":\"原文链接\",\"summary\":\"摘要\",\"importance\":0.82,\"keyword\":\"分类关键字\"}。");
         builder.AppendLine("7. url 必须与下面给出的原文链接完全一致。");
         builder.AppendLine("8. 原文信息不足以写摘要时，summary 留空字符串，不要猜测。");
+
+        var categories = config.Keywords.Where(k => !string.IsNullOrWhiteSpace(k)).Select(k => k.Trim()).ToList();
+        if (categories.Count > 0)
+        {
+            builder.AppendLine("9. 为每条给出 keyword：从下面这组分类关键字里挑**最贴合这条新闻**的一个，原样照抄（不要改写、不要自造新词）；都不贴合就留空字符串。");
+            builder.AppendLine($"   分类关键字：{string.Join("、", categories)}");
+        }
+
         builder.AppendLine();
         builder.AppendLine("原文：");
 
