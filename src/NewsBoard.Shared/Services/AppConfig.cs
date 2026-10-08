@@ -24,7 +24,7 @@ public enum TextAlignOption { Left, Center, Right }
 public sealed class AppConfig
 {
     // ---- 4.1 API / 采集 ----
-    public NewsFetchMode FetchMode { get; set; } = NewsFetchMode.RssThenSummarize;
+    public NewsFetchMode FetchMode { get; set; } = NewsFetchMode.Auto;
     public string BaseUrl { get; set; } = "https://api.deepseek.com";
     public string Model { get; set; } = "deepseek-chat";
     public string BaseUrlSearch { get; set; } = "https://api.deepseek.com/anthropic";
@@ -34,7 +34,16 @@ public sealed class AppConfig
     public int FetchIntervalMinutes { get; set; } = 5;
     public int SummaryMaxChars { get; set; } = 50;
     public int AiMinIntervalMinutes { get; set; } = 10;
-    public string RssTemplate { get; set; } = "https://www.bing.com/news/search?q={q}&format=RSS";
+    /// <summary>RSS 源模板。含 <c>{q}</c> 时按关键字各抓一次（搜索型源）；不含则视为共享频道源，只抓一次。</summary>
+    public string RssTemplate { get; set; } = "https://www.chinanews.com.cn/rss/scroll-news.xml";
+
+    /// <summary>主源失败时依次尝试的备用 RSS 源（不含 {q} 的共享频道源）。</summary>
+    public List<string> RssFallbackTemplates { get; set; } =
+    [
+        "http://www.people.com.cn/rss/politics.xml",
+        "https://www.ithome.com/rss/",
+    ];
+
     public bool OnlyTodayNews { get; set; } = true;
 
     /// <summary>运行时从 ISecretStore 注入，永不写入 JSON。</summary>
