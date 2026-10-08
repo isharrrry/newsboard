@@ -170,7 +170,7 @@ flowchart TD
 
 | 配置项 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
-| 新闻获取方式 | enum | `RSS+提炼` | `RSS+提炼` / `模型联网搜索` / `自动` |
+| 新闻获取方式 | enum | `自动` | `RSS+提炼` / `模型联网搜索` / `自动`（**修订 R1**：原默认 `RSS+提炼`） |
 | BaseUrl | string | `https://api.deepseek.com` | OpenAI 兼容端点（RSS 提炼通道） |
 | Model | string | `deepseek-flash` | 模型名可填（官方名是 `deepseek-chat`） |
 | BaseUrlSearch | string | `https://api.deepseek.com/anthropic` | 联网搜索端点（Anthropic 兼容） |
@@ -181,7 +181,8 @@ flowchart TD
 | 抓取间隔 | int(分钟) | `5` | 定时抓取周期 |
 | 摘要字数 | int | `50` | ±10 字软约束 |
 | AI 最小调用间隔 | int(分钟) | `10` | 防止源站抖动重复烧 token |
-| RSS 源模板 | string | Bing News RSS | `https://www.bing.com/news/search?q={q}&format=RSS` |
+| RSS 源模板 | string | 中新网滚动新闻 | **修订 R1**：原 `https://www.bing.com/news/search?q={q}&format=RSS` 已失效（返回 HTML）；新默认 `https://www.chinanews.com.cn/rss/scroll-news.xml`，含 `{q}` 时按关键字各抓一次，不含则视为共享频道源只抓一次 |
+| RSS 备用源 | string[] | 人民网 politics + IT之家 | **新增（R1）**：主源失败时按序回退 |
 | 只用当天新闻 | bool | `true` | 过滤超过 24h 的旧闻 |
 
 ### 4.2 外观
@@ -289,12 +290,17 @@ stateDiagram-v2
 
 ## 6. 采集与 AI 提炼
 
-### 6.1 通道 B：RSS 取原文（默认）
+### 6.1 通道 B：RSS 取原文（保底）
 
 - 6 个关键字各发一个 RSS 请求（并发限 3）。
 - 解析标题、链接、发布时间、来源站点（`XDocument` 或 `System.ServiceModel.Syndication`）。
 - 按 `只用当天新闻` 过滤，每关键字取最新 X 篇。
 - 正文片段：优先 RSS `description`；不足时抓源站前 2KB 正文。
+
+> **修订 R1（实测后改写）**：Bing News 的 `?format=RSS` 已不再返回 RSS（实测返回 `text/html`），百度 `newsrss` 返回安全验证页，Google News RSS 在本机超时 —— **本机不存在可用的「关键字搜索」RSS**。因此通道 B 改为：
+> - `RssTemplate` 默认指向**频道源** `https://www.chinanews.com.cn/rss/scroll-news.xml`（实测 30 条真实条目）；模板**含 `{q}`** 时仍按关键字各抓一次（供用户自填搜索型源），**不含 `{q}`** 时视为共享源**只抓一次**，按 `max(每关键字篇数 × 关键字数, 10)` 取最新条目，条目关键字标记用 feed 的 channel 标题。
+> - 主源失败/空 → 依次回退 `RssFallbackTemplates`（默认人民网 `politics.xml` + IT之家 `rss/`）。
+> - 关键字检索能力由**通道 A（模型联网搜索）**承担，故 §4.1 默认 `新闻获取方式` 由 `RSS+提炼` 改为 **`自动`**（先联网搜索，失败回退 RSS）。
 
 ### 6.2 通道 A：模型联网搜索
 
@@ -411,6 +417,8 @@ stateDiagram-v2
 | fb-7 / fb-8 | 指向 §4.4 默认值列的 `true` / `false` | ⚠️ 锚点错位，改由 fb-9 澄清定稿 |
 | fb-9 | chat：「开机自启 true，仅 wifi false」 | ✅ §4.4 定稿：开机自启=`true`、仅 WiFi 抓取=`false`；新增 §3.4 开机自启实现方案、任务 T4b、以及 Android 开机自启被系统/厂商拦截的风险条目 |
 | fb-10 | chat：「无边框全屏 false、Android 显示系统状态栏 true，设置中可启用」 | ✅ §4.4 定稿：Windows 无边框全屏=`false`、Android 显示系统状态栏=`true`，两者均进设置页；§1 范围、§3.1 宿主说明、任务 T2 的验证口径全部同步改为「默认普通窗口 / 带状态栏，可切换」 |
+| **R1** | 实施期实测：Bing News RSS 端点已失效 | ✅ **契约修订**：§4.1 默认 `新闻获取方式` `RSS+提炼` → `自动`；`RssTemplate` 默认值换成实测可用频道源，新增 `RssFallbackTemplates` 备用链（含 `{q}` = 关键字各抓一次 / 不含 = 共享源只抓一次）；§6.1 补修订说明。证据：Bing `?format=RSS` 返回 `text/html`、百度 `newsrss` 返回安全验证页、Google News RSS 超时；中新网 / 人民网 / IT之家 频道源实测可用 |
+| **R2** | 实施期实测：WPF 宿主 TFM 需版本化平台号 | ✅ **约定修订**：WPF TFM 由 `net10.0-windows` 改为 `net10.0-windows10.0.19041.0`（裸 TFM 启动即崩 `FileNotFoundException: Microsoft.Windows.SDK.NET`）；`AGENTS.md` 同步。另记录 DPAPI 无需 NuGet 包、`System.Speech` 用 10.0.7 |
 
 ---
 
@@ -430,15 +438,22 @@ stateDiagram-v2
 
 | 分支 | 范围 | 状态 |
 |---|---|---|
-| `sa1` | 采集 + AI 提炼（T5/T6/T7） | 开发中 |
-| `sa2` | 配置持久化 + 设置页（T4） | ✅ 已合并 |
+| `sa1` | 采集 + AI 提炼（T5/T6/T7） | ✅ 已合并（RSS 源修订的追加任务进行中） |
+| `sa2` | 配置持久化 + 设置页（T4） | ✅ 已合并（设置页追加项进行中） |
 | `sa3` | 播放引擎 + 播放 UI（T9/T10/T11） | 开发中 |
-| `sa4` | WPF 宿主（T1/T2/T3/T8 的 Windows 侧） | 开发中 |
-| `sa5` | Android 环境（§7：workload + SDK + JDK） | 安装中 |
-| `sa6` | MAUI(Android) 宿主（T1/T2/T3/T4b/T8 的 Android 侧） | 开发中 |
+| `sa4` | WPF 宿主（T1/T2/T3/T8 的 Windows 侧） | ✅ 已合并（宿主接线追加任务进行中） |
+| `sa5` | Android 环境（§7：workload + SDK + JDK） | workload 已装，JDK/SDK 安装中 |
+| `sa6` | MAUI(Android) 宿主（T1/T2/T3/T4b/T8 的 Android 侧） | 已提交，待接线与环境编译验证 |
 
 集成记录（主干 HEAD 依次递增）：
 
 1. `集成 SA2：配置持久化 + 设置页（T4 主体）` —— 合并 `sa2@c68fc01`，新增 `Services/ConfigStore.cs`、`Components/Pages/Settings.razor`、`wwwroot/css/settings.css`、`Tests/Sa2ConfigStoreTests.cs`。
-   验证：`dotnet build src\NewsBoard.Shared` 0 警告 0 错误；`dotnet test src\NewsBoard.Tests` **13/13 通过**（含「config.json 内不含 ApiKey 键」断言）。
-2. 主干遗留问题（待 `sa4` 合并解）：`NewsBoard.slnx` 整体编译失败于 `src\NewsBoard.Wpf` —— 骨架 csproj 的 `StartupObject` 指向尚不存在的 `App.xaml`。
+   验证：`dotnet build src\NewsBoard.Shared` 0 警告 0 错误；`dotnet test` **13/13 通过**。
+2. `集成 SA1：采集 + AI 提炼 + 去重缓存（T5/T6/T7）` —— 合并 `sa1@d0214ff`，新增 6 个 Service + 6 个测试文件。
+   验证：`dotnet build src\NewsBoard.Shared` 0 警告 0 错误；`dotnet test` **62/62 通过**（SA1 侧另做了真实联网自检：RSS 抓 6 关键字 × 3 条全在 24h 内；提炼 1102ms 输出 36/39 字摘要；联网搜索 3.26s 返回真实结果）。
+3. `契约：默认走 Auto + RSS 源换实测可用频道源与备用链；新增 IAutoStart` —— 见 §10 修订 R1。
+4. `集成 SA4：WPF 宿主 + 平台服务（T1/T2/T3/T8 的 Windows 侧）` —— 合并 `sa4@f42c835`。
+   验证：`dotnet build NewsBoard.slnx` **0 警告 0 错误**（至此整解决方案绿色）；SA4 侧实机验证：进程存活、`MainWindowTitle='新闻看板'`、`msedgewebview2` 子进程 12 个；F11 全屏 `1920x1080@0,0` / Esc 还原；TTS zh-CN 完成回调 6135ms 精确触发；密钥+自启探针 11/11 PASS。
+5. `集成：Shared 侧统一 DI 装配入口 AddNewsBoardCore + 启动期加载` —— 新增 `Services/ServiceCollectionExtensions.cs`，两端宿主共用。
+6. 待解：契约默认值变更致 10 个测试暂红（SA1 8 个、SA2 2 个），已派回原代理按新契约修正；`AddNewsBoardCore` 中 `PlaybackEngine` 注册待 SA3 合并后补入。
+
