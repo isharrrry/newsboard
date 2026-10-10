@@ -38,18 +38,36 @@
     <script src="_content/NewsBoard.Shared/js/measure.js"></script>
     <script src="_framework/blazor.webview.js" autostart="false"></script>
     <script>
-        // autostart="false" 时没人替我们启动 Blazor（Windows 头实测会一直停在「正在启动…」），
-        // 这里显式启动；重复调用是幂等的。
+        // MAUI 的 BlazorWebView 会自己启动 Blazor 并注册 XAML 里声明的根组件（MainPage.xaml 的
+        // Selector="#app"）。这里**不能抢在框架之前**调用 Blazor.start()：抢跑会用「没有根组件」
+        // 的方式把它启动起来，框架随后带根组件的启动会被拒绝（"Blazor has already started."），
+        // 页面就只剩一片空白（Android 真机实测：进程活着、WebView 在、#app 为空）。
+        // 所以这里只观察：框架渲染出来就撤掉启动提示；框架迟迟不启动才兜底自己启动。
         function hideBootHint() {
             var hint = document.getElementById('boot-hint');
             if (hint) { hint.remove(); }
         }
-        try {
-            var started = Blazor.start();
-            if (started && started.then) { started.then(hideBootHint, hideBootHint); } else { hideBootHint(); }
-        } catch (e) {
-            hideBootHint();
-        }
+
+        (function watchFrameworkStart() {
+            var tries = 0;
+            var timer = setInterval(function () {
+                var app = document.getElementById('app');
+                if (app && app.childElementCount > 0) {
+                    clearInterval(timer);
+                    hideBootHint();
+                    return;
+                }
+                if (++tries >= 30) {
+                    clearInterval(timer);
+                    try {
+                        var started = Blazor.start();
+                        if (started && started.then) { started.then(hideBootHint, hideBootHint); } else { hideBootHint(); }
+                    } catch (e) {
+                        hideBootHint();
+                    }
+                }
+            }, 100);
+        })();
     </script>
 </body>
 
