@@ -6,12 +6,14 @@
 
 | 文档 | 写什么 |
 |---|---|
-| `README.md` | **使用者视角**：怎么跑（三种运行形态 + Android 前置点源）、界面与操作（含灭屏点屏唤醒）、设置页分组、配置/缓存/Key 在哪、新闻数据流、已知限制 |
-| `news-board.plan.md` | **方案与历史**：决策记录 D1–D5、架构与项目结构、§4 配置项清单（与 `AppConfig` 对齐）、§5 播放引擎、§6 采集与提炼、§8 任务状态表、§10 修订记录 R1–R6、§11–§14 逐轮迭代与事故记录 |
+| `README.md` / `README.zh-CN.md` / `README.es.md` | **使用者视角**（英文为默认版，三语并列）：怎么跑（三种运行形态 + Android 前置点源）、界面与操作（含灭屏点屏唤醒）、设置页分组、配置/缓存/Key 在哪、新闻数据流、实测结果、已知限制 |
+| `docs/` | **按主题的正式文档**，每篇三语（`<name>.md` 英 / `<name>.zh-CN.md` 中 / `<name>.es.md` 西）：`index`（索引）、`architecture`、`configuration`、`news-pipeline`、`playback`、`android`、`troubleshooting`、`contributing` |
+| `docs/android-env-report.md` | Android 工具链环境实测报告（单语） |
+| `plans/news-board.plan.md` | **方案与历史**：决策记录 D1–D5、架构与项目结构、§4 配置项清单（与 `AppConfig` 对齐）、§5 播放引擎、§6 采集与提炼、§8 任务状态表、§10 修订记录 R1–R8、§11–§16 逐轮迭代与事故记录 |
+| `CHANGELOG.md` | 版本变更记录（用户可见的 Added / Changed / Fixed / Verified） |
 | `AGENTS.md`（本文件） | **开发约定**：命令、目录与文件所有权、冻结契约、编码约定、以及全部**实测事实**（含踩过的坑） |
-| `docs/android-env-report.md` | Android 工具链环境实测报告 |
 
-**纪律：改了行为、配置项或命令，必须在同一次提交里同步这三处** —— `README.md`（会改变用户操作方式的部分）、`AGENTS.md`（约定与实测事实）、`news-board.plan.md`（§4 配置清单 + 对应迭代章节 + §10 修订记录）。**不允许**出现「代码里有、文档里没有」的配置项。
+**纪律：改了行为、配置项或命令，必须在同一次提交里同步这些地方** —— 三语 `README.*`（会改变用户操作方式的部分）、三语 `docs/`（受影响的主题篇，尤其 `configuration`）、`AGENTS.md`（约定与实测事实）、`plans/news-board.plan.md`（§4 配置清单 + 对应迭代章节 + §10 修订记录）、`CHANGELOG.md`（用户可见的变更）。**不允许**出现「代码里有、文档里没有」的配置项。
 
 ## 构建 / 测试命令
 
@@ -32,6 +34,9 @@ dotnet build NewsBoard.slnx -v q --nologo
 # 单独构建 Android 宿主（产出 APK 于 bin\Debug\net10.0-android\*-Signed.apk）
 dotnet build src\NewsBoard.Maui\NewsBoard.Maui.csproj -f net10.0-android -v q --nologo
 
+# 构建 + 安装到已连接的设备（**调试包只能这样部署**，见下）
+dotnet build src\NewsBoard.Maui\NewsBoard.Maui.csproj -f net10.0-android -t:Install -v q --nologo
+
 # MAUI 的 Windows 头（桌面调试；非打包运行，依赖已安装的 Windows App Runtime）
 dotnet build src\NewsBoard.Maui\NewsBoard.Maui.csproj -f net10.0-windows10.0.19041.0 -v q --nologo
 dotnet run --project src\NewsBoard.Maui -f net10.0-windows10.0.19041.0
@@ -41,7 +46,14 @@ dotnet run --project src\NewsBoard.Maui -f net10.0-windows10.0.19041.0
 MAUI 的 Windows 头用 `WindowsPackageType=None`（非打包）运行，需要 Windows App Runtime（本机已装 1.6 / 1.7 / 1.8）。
 Android 工具链在 **`D:\Android`**：JDK 17 于 `D:\Android\jdk-17`、Android SDK 于 `D:\Android\Sdk`（platform-36 / build-tools 36.0.0 / platform-tools）、NDK 27.2.12479018。
 **构建 Android 前必须先点源 `scripts\android-env.ps1`**（本机执行策略是 `Restricted`，故需先 `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force`）；否则报 `XA5300 找不到 Android SDK`。环境现状与占用清单见 `docs\android-env-report.md`。
-**Android 真机（2026-10-08 末次检测）**：`adb devices` 有 **1 台**已授权设备 —— Xiaomi `M2011K2C`（Redmi K40），Android 13 / SDK 33 / arm64-v8a，序列号 `c6e5ecef`，**尚未安装本应用**。此前各轮记录的「本机无设备/模拟器」是当时的真实状态；现在装机类验证（T1/T2/T3/T4b/T8/T12/T13 的 Android 侧）**具备条件但尚未执行**。
+**Android 真机（2026-10-08 末次检测）**：`adb devices` 有 **1 台**已授权设备 —— Xiaomi `M2011K2C`（Redmi K40），Android 13 / SDK 33 / arm64-v8a，序列号 `<device-serial>`，**已装机并跑通**（同日；包名 `com.newsboard.app`，versionCode 1 / minSdk 24 / targetSdk 36）：启动渲染、6 个关键字抓回 16 条、关键字标签 + 时钟 + 大字摘要 + 控制条、`config.json`/`news.json` 落 app 私有目录，均实测通过（细节见 plan §15）。**2026-10-08 已补做 Android 侧逐项走查** —— 灭屏/常亮与 TTS 通过、开机自启被 MIUI 拦、长稳见 plan §16。
+
+**Android 平台三条实测事实（2026-10-08 真机逐项走查，细节见 plan §16）**：
+- **「黑屏」≠ 关屏**：`AndroidScreenController.SetBlackoutAsync(true)` 只把窗口 `WindowManager.LayoutParams.ScreenBrightness` 置 `0f` + 画全黑遮罩，**物理背光仍然亮着**（`dumpsys power` 的 `mScreenBrightnessOverrideFromWindowManager` 由 `NaN` 变 `0.0`，同刻截图 300KB → 27KB；点屏幕唤醒后回到 `NaN`，截图恢复）。Android 上普通应用**没有免权限的真熄屏手段**（`PowerManager.GoToSleep()` 是签名权限；`DevicePolicyManager.LockNow()` 要设备管理员、还会连带锁屏、唤醒需解锁）。屏幕常亮由窗口标志承担：`dumpsys window` 里可见 `fl=… KEEP_SCREEN_ON …`、`mLastWakeLockHoldingWindow=…MainActivity` —— **黑屏期间不能撤掉它**，否则系统按 `screen_off_timeout`（本机 600000ms）真息屏。
+- **Android TTS 用设备自带引擎**：本机是 `com.xiaomi.mibrain.speech`（`settings get secure tts_default_synth`，`tts_default_locale=null`），绑定成功日志为 `TextToSpeech: Sucessfully bound to …` + `Connected to TTS engine`。是否真的发声**看 `dumpsys audio` 而不是 logcat**：`player piid:N … type:android.media.AudioTrack … content=CONTENT_TYPE_SPEECH` 的 `started→stopped` 时间线就是每次朗读，本机实测单条 **7.4 / 13.1 / 10.6 / 13.7 / 14.6 秒**、条间 ≈1s（= `SpeechLeadSeconds`）。音质只能人耳评估。
+- **MIUI 会拦开机自启（非代码缺陷）**：`BootReceiver` 注册与广播派发都正常（`dumpsys activity broadcasts` 里能看到 `Deliver 0 #154: (manifest)` 指向 `crc64017365ed8da6996e.BootReceiver`，`enabled=true exported=true`），但系统紧接着记录 `BroadcastQueueInjector: Unable to launch app com.newsboard.app/10244 for broadcast Intent { act=android.intent.action.BOOT_COMPLETED … }: process is not permitted to auto start`，且 `cmd appops get com.newsboard.app 10021` → `MIUIOP(10021): ignore`。**需用户在 MIUI「自启动管理」里手动放行**（无 root 时 `cmd appops set … 10021 allow` 返回 `No operations.`，代不了；该机型 `com.miui.securitycenter/com.miui.permcenter.autostart.AutoStartManagementActivity` 也无法用 `am start` 拉起 —— `Error type 3 … does not exist`，所以 `AutoStartHelper.OpenAutoStartSettings()` 在本机会退回到应用详情页，属优雅降级不是 bug）。
+**Android 部署（实测踩过，非产品缺陷）**：Debug 构建走 .NET Android 的 **Fast Deployment** —— 程序集不在 APK 里，而是放在设备上 `files/.__override__/<abi>` 目录、由部署目标单独推送。**只 `adb install` 那个 `*-Signed.apk` 会启动即崩**：`Fatal signal 6 (SIGABRT)`，`Abort message: No assemblies found in '/data/user/0/com.newsboard.app/files/.__override__/arm64-v8a' ... Assuming this is part of Fast Deployment. Exiting...`（backtrace 为 `libc.so (abort)` ← `libmonodroid.so (abort_application)`）。
+部署到设备请用 **`-t:Install`**（`-t:Run` 亦可，它会顺带启动）；要一个能直接分发安装的自包含 APK，请用 Release 构建。（装机后如需确认程序集已推送：`adb shell run-as com.newsboard.app ls files/.__override__/arm64-v8a | wc -l`，本次为 440 个文件。）
 
 ## 目录与文件所有权
 
@@ -84,14 +96,18 @@ Android 工具链在 **`D:\Android`**：JDK 17 于 `D:\Android\jdk-17`、Android
   因此 `RssTemplate` 默认改为不含 `{q}` 的共享频道源，并新增 `RssFallbackTemplates` 备用链：模板**含 `{q}`** → 按关键字各抓一次；**不含** → 视为共享源只抓一次。
 - 默认 `FetchMode = Auto`（先走已验证可用的联网搜索通道，RSS 作保底）。
 - Windows 中文 TTS：`System.Speech` 枚举到 `Microsoft Huihui Desktop`(zh-CN)；`SpeakCompleted` 回调可靠（实测触发，产出 290KB WAV）。
-- **MAUI 的 `wwwroot/index.html` 必须显式 `Blazor.start()`**：`blazor.webview.js` 带 `autostart="false"` 时，Windows 头不会替我们启动，页面会一直停在「正在启动…」（实测；`Blazor.start()` 重复调用是幂等的）。
+- **MAUI 宿主页（`src/NewsBoard.Maui/wwwroot/index.html`）绝不可抢在框架之前调用 `Blazor.start()`**：MAUI 的 `BlazorWebView` 会**自己**启动 Blazor 并注册 `MainPage.xaml` 里声明的根组件（`Selector="#app"`）。宿主页脚本一旦抢跑，就会用「没有根组件」的方式把 Blazor 启动起来，框架随后带根组件的启动被拒（控制台 `Uncaught (in promise) Error: Blazor has already started.`，调用方是框架注入的匿名脚本），结果是**进程活着、WebView 在、`#app` 一片空白**（Android 真机实测，2026-10-08；`pidof` 有值、`uiautomator` 里 WebView 铺满屏幕、CDP 查到 `#app.innerHTML.length === 0`）。
+  正确写法：宿主页只用定时器观察 —— `#app` 有子节点就撤掉 `#boot-hint` 并结束；超过 3s 仍为空才兜底 `Blazor.start()`（兜底也安全：此时框架必然已过了页面加载，重复调用只会抛错被吞）。回归测试 `Sa5MauiHostPageTests.MAUI宿主页_不抢在框架之前启动Blazor`（断言 `Blazor.start()` 出现在 `setInterval` 之后，断言前先剥掉行注释，否则注释里的字样会误伤）。
+  **勘误**：早前这里记的「MAUI 的 index.html 必须显式 `Blazor.start()`、重复调用是幂等的」是**错误结论** —— Android 上重复调用不是幂等的，且抢跑会直接导致黑屏。WPF 的 `index.html` 是另一份文件（**没有** `autostart="false"`，走默认自动启动 + 显式 start），未受影响、保持不变。
 - **MAUI 宿主必须在启动期调用 `InitializeNewsBoardAsync()`**（现于 `MauiProgram.CreateMauiApp()` 末尾 fire-and-forget）；不调用则配置（含 API Key）不加载、抓取调度器不启动 —— 症状是画面永远停在「正在获取新闻…」且进程零网络连接（实测踩过）。`Display.razor` 起播前也会 `await Services.InitializeNewsBoardAsync()` 兜底（幂等）。
 - 摘要默认 **70 字**、卡片默认**不显示标题**（`AppConfig.ShowTitle=false`）；两条通道（RSS 提炼 / 联网搜索）都要过 `SummaryText.Normalize` 本地二次校验（上限 1.2 倍 → 截到最后一个句号），因为模型实测会超字数。实测（2026-10-08，默认 70）：RSS 提炼 53–66 字、联网搜索 72–84 字。
 - **摘要语言**：两条通道的提示词都会写入 `config.SummaryLanguage.PromptRule()`。**实测（2026-10-08）**：加这条之前，联网通道检索港台源时摘要会夹带繁体（9 篇里 6 篇命中 1–3 个繁体字）；加之后同样关键字复测 **9 篇全 0**（判定用「只含繁体专有字」的字集，简繁同形字如 路/新/果/大 必须排除，否则误报）。
 - **重要度筛选（模型打分 + 本地均衡）**：两条通道的提示词都要求模型给出 `importance`（0.00–1.00，**相对最近三天这批新闻**、要拉开差距：重大 0.80–1.00 / 例行 0.20–0.50）；`ImportanceScoring.Read()` 容错解析（数字/数字字符串、越界夹取、非法→null）；`ImportanceScoring.Balance()` 在**整批退化**（极差 < 0.1 或 ≥80% 堆在 ≥0.85/≤0.15）且 ≥3 条时按秩在 [0.15, 0.95] 展开；`NewsRepository.GetPlaylist` **先按 `ImportanceThreshold` 过滤再排序**（`Importance` 为 null 的旧缓存保留，等于门槛也保留），随机顺序缓存键包含门槛（改门槛立即重排）。
   实测（2026-10-08，1 关键字 RSS + 2 关键字联网）：缓存 16 条分布 `0.2-0.4:4 / 0.4-0.6:5 / 0.6-0.8:4 / 0.8-1.0:3`，过 0.7 门槛显示 6 条 —— 既不堆高分也不堆低分。
   **注意**：门槛过滤后播放列表可能为空（「正在获取新闻…」会一直显示），这是配置语义而非卡死。
-- **`RawContent`**：RSS 通道会把 `RawNewsItem.Description` 截断到 2000 字存进缓存（便于回看/二次提炼）；**联网通道拿不到正文**，该字段恒为 null。
+- **`RawContent`**：入库时按 `NewsSummarizer.TruncateRawContent` 截到 **2000 字**（便于回看/二次提炼）。注意这个上限作用在**入库的 `RawContent`** 上；源头的 `RawNewsItem.Description` 不截断（早前记成「RSS 把 Description 截断到 2000 字」，**有误**）。
+  **勘误（2026-10-09，代码 + 实测）**：早前写的「**联网通道拿不到正文**，该字段恒为 null」**是错的**。联网通道自身确实不返回正文（`WebSearchNewsSource` 构造 `RawNewsItem` 时不设 `Description`），但正文补抓 `BackfillRawContentAsync` 在 `NewsFetchCoordinator` 里位于**通道分支之前**、对两条通道的新条目统一生效；筛选条件 `Description < 300` 字让联网条目**必然入选**，补抓成功后 `Description` 被写回、构造 `NewsItem` 时 `RawContent = TruncateRawContent(r.Description)` 即非 null。
+  **实测**：本机真实缓存 `%LOCALAPPDATA%\NewsBoard\news.json` 共 313 条（全部联网来源），其中 **92 条 `RawContent` 非 null**，长度 109–2000 字符；补抓失败的条目仍为 null。另：少数条目抓到的是站点模板文案（实测出现过以「调查问题加载中，请稍候。若长时间无响应，请刷新本页面」开头的正文），`ExtractMainText` 目前不清这类占位。
 - **图文模式的配图来源（实测，2026-10-08）**：中新网、人民网文章页**都没有 `og:image`/`twitter:image`**，RSS 也没有 `enclosure`/`media:*` ⇒ 只看 meta 会永远取不到图。`ImageResolver` 现为四级：og:image → twitter:image → `link[rel=image_src]` → **正文首图**（优先正文容器内、`<p>` 之后、跳过 logo/图标/占位图/早于文章日期 60 天以上的模板素材），且**逐个候选发 Range 请求校验真的返回 `image/*`**（中新网图床 `i2.chinanews.com.cn` 防盗链，直接取回的是 html）。实测 8 篇真实文章：修前 8/8 命中但 4 篇拿到同一张模板图、1 篇页脚图；修后 7/8 命中且**各不相同**的真实配图。
   图文模式下每轮还会为「缓存里已存在但没图」的旧条目补抓配图（每轮上限 8 条，`NewsFetchCoordinator.MaxImageBackfill`）。
 - **灭屏期间点一下屏幕即唤醒**：`.blackout` 遮罩带 `@onclick="WakeAsync"`（`PlaybackEngine.WakeAsync()` → 立刻退出灭屏、回到显示、从当前条重新起算窗口）。灭屏期间控制条是隐藏的（`.board-controls--hidden`），所以点击一定落在遮罩上；实测亮度 58.4 → 打断 0 → 点一下 58.4。

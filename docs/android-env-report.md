@@ -266,18 +266,29 @@ APK 产物位置：`src\NewsBoard.Maui\bin\<配置>\net10.0-android\*-Signed.apk
 | NDK | `D:\Android\Sdk\ndk\27.2.12479018` 存在 |
 | 三头构建 | `dotnet build NewsBoard.slnx`（WPF + MAUI/Android + MAUI/Windows）**0 警告 0 错误** |
 
-**真机（本次新增）**：
+**真机（本节复核新增）**：
 
 ```
 $ adb devices
 List of devices attached
-c6e5ecef        device
+<device-serial>        device
 
 $ adb shell getprop ro.product.brand           → Xiaomi
-$ adb shell getprop ro.product.model           → M2011K2C
+$ adb shell getprop ro.product.model           → M2011K2C（Redmi K40）
 $ adb shell getprop ro.build.version.release   → 13      (SDK 33)
 $ adb shell getprop ro.product.cpu.abi         → arm64-v8a
-$ adb shell pm list packages com.newsboard.app → （空 ⇒ 本应用尚未安装）
 ```
 
-⇒ 装机类验证现在就具备条件（`dotnet build src\NewsBoard.Maui\NewsBoard.Maui.csproj -f net10.0-android -t:Run`，或 `adb install <apk>`）。**本报告没有执行任何安装或运行操作**，设备状态未被改动。
+**装机与运行（同日执行，已通过）**：
+
+```
+$ dotnet build src\NewsBoard.Maui\NewsBoard.Maui.csproj -f net10.0-android -t:Install
+  → 已成功生成（0 警告 0 错误）；程序集推送到 files/.__override__/arm64-v8a（440 个文件）
+$ adb shell dumpsys package com.newsboard.app | grep versionName → 1.0（minSdk 24 / targetSdk 36）
+$ adb shell am start -n com.newsboard.app/crc64017365ed8da6996e.MainActivity → 进程存活、无 FATAL
+$ adb shell run-as com.newsboard.app ls -la files/NewsBoard → config.json(1817B) + news.json(22464B)
+```
+
+结果：画面渲染正常（关键字标签 + 时钟 + 大字摘要 + 控制条），抓回 **16 条**新闻、6 个关键字全部命中。
+
+> **注意：Debug 包不能只 `adb install`** —— 它走 .NET Android 的 Fast Deployment，程序集不在 APK 里，只装那个 `*-Signed.apk` 会启动即崩（`Fatal signal 6 (SIGABRT)`，`Abort message: No assemblies found in .../files/.__override__/arm64-v8a`）。部署到设备请用 `-t:Install` / `-t:Run`；要能独立分发的包请走 Release 构建。细节见 `AGENTS.md` 与 plan §15。
