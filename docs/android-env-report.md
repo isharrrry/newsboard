@@ -3,6 +3,8 @@
 日期：2026-10-08　工作目录：`D:\AllData\AIDATA\NewsBoard\.wt\sa5`（分支 `sa5`，**已合并进主干**）
 
 > **末次复核见文末 §八**（工具链仍在位、占用有变化、并且**已连接一台 Android 真机**）。
+>
+> **范围说明**：本报告**只覆盖 Android 工具链**。NewsBoard 本身是**跨平台**项目（当前已支持 Android 与 Windows），总览见三语 `README.*` 与 `docs/index.md`，平台能力差异见 `docs/android.md` 与 `docs/windows.md`。
 
 ## 一、结论
 

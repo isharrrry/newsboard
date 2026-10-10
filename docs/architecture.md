@@ -4,13 +4,25 @@
 
 > Part of the NewsBoard documentation — back to [README](../README.md)
 
+## One component set, three hosts
+
+NewsBoard is a **cross-platform** large-type news board: **one set of Razor components (`NewsBoard.Shared`, zero platform dependencies) + several hosts**. **Two platforms are supported today — Android and Windows — through three runnable hosts**, and the three are peers.
+
+| Platform | Host | Stack / TFM | Status |
+|---|---|---|---|
+| Android | `NewsBoard.Maui` | .NET MAUI + `BlazorWebView`, `net10.0-android` | Supported; measured by installing on a real device (Android 13 / arm64-v8a), and the project that produces the APK |
+| Windows | `NewsBoard.Wpf` | WPF + WebView2, `net10.0-windows10.0.19041.0` | Supported; measured running on this machine, and `dotnet publish -c Release` produces 45 files / 28.14 MB |
+| Windows | `NewsBoard.Maui` Windows head | .NET MAUI + `BlazorWebView`, same TFM | Supported; runs unpackaged with `WindowsPackageType=None`, needs the Windows App Runtime (1.6 / 1.7 / 1.8 on this machine) |
+
+Exactly one thing sets Android apart: it is the only platform that has been verified by installing on a physical device.
+
 ## The three projects
 
 | Project | Target framework | What it is |
 |---|---|---|
 | `NewsBoard.Shared` | `net10.0` | Razor class library (RCL): **all** UI components, `wwwroot` (css/js), the configuration model, fetching, summarization, the playback engine and the platform abstraction interfaces. **Zero platform dependencies.** |
-| `NewsBoard.Maui` | `net10.0-android`; `net10.0-windows10.0.19041.0` | Android host (MAUI Blazor Hybrid), and the project that produces the APK. The Windows target framework is kept so the same Blazor layer can be debugged on a PC. Provides the Android and Windows platform implementations. |
-| `NewsBoard.Wpf` | `net10.0-windows10.0.19041.0` | Windows desktop host: WPF plus `Microsoft.AspNetCore.Components.WebView.Wpf` (WebView2), hosting the same Razor components. Provides the Windows platform implementations. |
+| `NewsBoard.Maui` | `net10.0-android`; `net10.0-windows10.0.19041.0` | Two hosts in one project: the **Android host** (MAUI Blazor Hybrid, and the project that produces the APK) and the **MAUI Windows head**, which runs the same Blazor layer as an unpackaged desktop app. Supplies both the Android and the Windows platform implementations. |
+| `NewsBoard.Wpf` | `net10.0-windows10.0.19041.0` | The **Windows desktop host**: WPF plus `Microsoft.AspNetCore.Components.WebView.Wpf` (WebView2), hosting the same Razor components. Supplies the Windows platform implementations. |
 
 The dependency direction is single: `Maui → Shared`, `Wpf → Shared`. **Shared never depends back on a host.**
 
@@ -19,7 +31,7 @@ The dependency direction is single: `Maui → Shared`, `Wpf → Shared`. **Share
 Why it is split this way:
 
 - **Platform capabilities live entirely in the host projects.** Screen control, TTS, secret storage, auto-start and link opening are injected through interfaces defined in Shared; Shared contains no `#if ANDROID` and no `#if WINDOWS`.
-- **Shared holds only pure .NET logic** — fetching, summarization, dedup, caching, the playback state machine and every Razor component. One copy serves all three heads, and the Blazor layer can be debugged quickly on a PC through the WPF host.
+- **Shared holds only pure .NET logic** — fetching, summarization, dedup, caching, the playback state machine and every Razor component. One copy serves all three heads, so the same board runs on Android and on Windows, and the Blazor layer can be debugged quickly on a PC through the WPF host.
 - **Blazor only renders.** Components receive a `NewsItem` plus display options and output HTML/CSS.
 
 ## Source tree
@@ -124,7 +136,7 @@ NewsBoard/
 
 ## One start → fetch → playback flow
 
-1. **Host start.** The WPF host registers its platform implementations in `App.xaml.cs`; the MAUI host registers the Android or Windows set in `MauiProgram.cs` (selected by target framework). Both then call `AddNewsBoardCore()`. `MainWindow` (WPF) and `MainPage` (MAUI) host a `BlazorWebView` whose root component is `Components/Routes.razor`.
+1. **Host start.** Each host registers its own platform implementations: the WPF host in `App.xaml.cs`, the MAUI host in `MauiProgram.cs` (the Android or the Windows set, selected by target framework). All of them then call `AddNewsBoardCore()`. `MainWindow` (WPF) and `MainPage` (MAUI, both heads) host a `BlazorWebView` whose root component is `Components/Routes.razor`.
 2. **Assembly.** `AddNewsBoardCore()` registers one `HttpClient` with `Timeout.InfiniteTimeSpan` — the three network implementations each do their own timing (15 s / 90 s / 3 s), so an `HttpClient` timeout would cut them short. It also registers `IClock → SystemClock`, `NewsRepository` (exposed as `INewsRepository`), `ConfigStore` (exposed as `IConfigProvider`), `NewsSummarizer`, `ImageResolver`, `ArticleContentFetcher`, both `INewsSource` implementations, `NewsFetchCoordinator`, `NewsFetchScheduler` and `PlaybackEngine`.
 3. **Initialization.** `InitializeNewsBoardAsync()` loads `config.json` (including the API key read from `ISecretStore`), loads `news.json`, then starts `NewsFetchScheduler` — one fetch immediately, then a loop at the "fetch interval" (default 5 minutes). **If this call is not awaited, the playlist stays empty and the board shows "正在获取新闻…" forever.**
 4. **Fetch.** Scheduler → `NewsFetchCoordinator` → `INewsSource` (the RSS channel feed, or the model's web-search channel; `Auto` tries web search first and falls back to RSS) → URL dedup → article-body backfill → `NewsSummarizer` (summary + importance + keyword) → `ImageResolver` (text + image mode only) → `NewsRepository` cache.
@@ -133,18 +145,35 @@ NewsBoard/
 
 ## How platform capabilities are injected
 
-`NewsBoard.Shared.Services.Abstractions` defines the interfaces; each host registers its own implementations in dependency injection **before** calling `AddNewsBoardCore()`.
+`NewsBoard.Shared.Services.Abstractions` defines the interfaces; each host registers its own implementations in dependency injection **before** calling `AddNewsBoardCore()`. The three hosts sit side by side below — Android first, then the two Windows heads — and the last column of the header names the folder each implementation lives in.
 
-| Interface | WPF | MAUI (Android) | MAUI (Windows) |
+| Interface | Android (`NewsBoard.Maui`, `Platforms/Android/`) | Windows (`NewsBoard.Wpf`, `Services/`) | Windows (`NewsBoard.Maui`, `Platforms/Windows/`) |
 |---|---|---|---|
-| `IScreenController` | `WpfScreenController` | `AndroidScreenController` | `WindowsScreenController` |
-| `ISpeechService` | `WpfSpeechService` | `AndroidSpeechService` | `WindowsSpeechService` |
-| `ISecretStore` | `WpfSecretStore` | `MauiSecretStore` | `WindowsSecretStore` |
-| `IAutoStart` | `WpfAutoStart` | `AndroidAutoStart` | `WindowsAutoStart` |
-| `ILinkOpener` | `WpfLinkOpener` | `AndroidLinkOpener` | `WindowsLinkOpener` |
+| `IScreenController` | `AndroidScreenController` | `WpfScreenController` | `WindowsScreenController` |
+| `ISpeechService` | `AndroidSpeechService` | `WpfSpeechService` | `WindowsSpeechService` |
+| `ISecretStore` | `MauiSecretStore` | `WpfSecretStore` | `WindowsSecretStore` |
+| `IAutoStart` | `AndroidAutoStart` | `WpfAutoStart` | `WindowsAutoStart` |
+| `ILinkOpener` | `AndroidLinkOpener` | `WpfLinkOpener` | `WindowsLinkOpener` |
 | `INewsSource`, `INewsRepository`, `IConfigProvider`, `IClock` | registered once by `AddNewsBoardCore()` in Shared — no platform implementation | | |
 
 `NewsBoard.Maui` selects the Android or the Windows set by target framework inside `MauiProgram.cs`; that conditional compilation stays in the host project. Shared itself must stay free of `#if ANDROID` and `#if WINDOWS`.
+
+## Platform differences
+
+The table below is the whole platform difference surface; everything not listed behaves identically on all three hosts, because it lives in Shared.
+
+| Capability | Android | Windows (`NewsBoard.Wpf`) | Windows (`NewsBoard.Maui` Windows head) |
+|---|---|---|---|
+| Blackout | window brightness 0 + a full-black overlay, **the physical backlight stays on** | **really turns the monitor off** (`WM_SYSCOMMAND` / `SC_MONITORPOWER`, 2 = off / -1 = on) | same as WPF; this head does no borderless fullscreen, so the guard rail degrades to "foreground only" |
+| Monitor-off guard rail | not applicable | turns the monitor off only when "the app window is foreground **or** already borderless fullscreen"; **turning it back on is not gated** | same, but the fullscreen condition is always false |
+| Keep screen on | carried by the `KEEP_SCREEN_ON` window flag, **not dropped during blackout** | empty implementation (no such need on the desktop) | empty implementation |
+| Fullscreen | immersive: hides the system status bar (option `AndroidShowStatusBar`) | borderless fullscreen (F11 to enter / Esc to exit; measured 1600x1000@(160,10) → 1920x1080@(0,0)) | not done (`SetFullscreenAsync` is an empty implementation) |
+| Speech synthesis | the device's own TTS engine (measured `com.xiaomi.mibrain.speech`) | `System.Speech` (measured: `Microsoft Huihui Desktop` zh-CN; the `SpeakCompleted` callback is reliable) | `System.Speech` (same as WPF) |
+| Auto-start | `BootReceiver` + a foreground service + a resident notification; a vendor auto-start manager (MIUI, for example) may block it | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` | same as WPF |
+| Config / cache directory | the app's private directory (package `com.newsboard.app`) | `%LOCALAPPDATA%\NewsBoard\` (`config.json` / `news.json`) | same as WPF, **fully shared with WPF** |
+| API key | MAUI `SecureStorage` (Android Keystore encryption, never a plaintext file) | `%APPDATA%\NewsBoard\secret.dat` (DPAPI CurrentUser + entropy `NewsBoard.SecretStore.v1`) | same as WPF (the two hosts share the key) |
+| Opening the source article | the system browser (Intent) | the default browser | the default browser |
+| Data directory override | the `NEWSBOARD_DATA_DIR` environment variable (common to all three hosts) | same | same |
 
 ## Frozen contracts
 

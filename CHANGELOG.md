@@ -12,7 +12,8 @@ Spanish), a topic-based `docs/` set, a changelog and a licence.
 ### Added
 
 - `docs/` topic set, **each document in English / Chinese / Spanish**: documentation index,
-  architecture, configuration, news pipeline, playback, Android, troubleshooting, contributing.
+  architecture, configuration, news pipeline, playback, Android, Windows, troubleshooting,
+  contributing.
 - `CHANGELOG.md` and `LICENSE` (MIT).
 - `plans/` — the implementation plan moved out of the repository root.
 - `screenshots/` — four curated screenshots used by the README.
@@ -21,6 +22,11 @@ Spanish), a topic-based `docs/` set, a changelog and a licence.
 
 - `README.md` is now the **English** edition; `README.zh-CN.md` and `README.es.md` carry the Chinese
   and Spanish editions. Every document starts with a one-line language switcher.
+- Documentation rewritten around a **cross-platform** narrative: Android and Windows are presented as
+  peers instead of Android being the primary target, and platform-specific capabilities (blackout,
+  keep-awake, speech, autostart, config and key locations) are now compared side by side.
+- New `docs/windows.*` documents the two Windows hosts (`NewsBoard.Wpf` and the Windows head of
+  `NewsBoard.Maui`) and their differences.
 
 ## 1.0.0 — 2026-10-08
 
@@ -33,7 +39,7 @@ large type with speech — on three hosts (WPF, MAUI/Windows, MAUI/Android).
 |---|---|
 | `NewsBoard.Shared` | Razor component library holding **all** logic and UI; zero platform dependencies, so it is testable without a device. |
 | `NewsBoard.Wpf` | Windows host (WPF + WebView2); full feature set and the fastest way to debug the Blazor layer. |
-| `NewsBoard.Maui` | Android host (`net10.0-android`, the primary target) plus a Windows head (`net10.0-windows10.0.19041.0`). |
+| `NewsBoard.Maui` | One project with two heads: the Android host (`net10.0-android`) and the Windows head (`net10.0-windows10.0.19041.0`). |
 | News pipeline | RSS channel feeds with a fallback chain, plus a model **web-search** channel; `FetchMode.Auto` tries web search first and falls back to RSS. URL-hash dedup means the second round makes **0 AI calls**. |
 | Summarisation | One batch call returns a ≤70-character summary, an importance score (0–1) and a keyword per item; a local `SummaryText.Normalize` pass enforces the length ceiling. |
 | Article body fetch | `ArticleContentFetcher` fetches the original page for short descriptions (5 per round, 2 concurrent) and writes the body back, so both the summary input and the cached `RawContent` use real article text. |

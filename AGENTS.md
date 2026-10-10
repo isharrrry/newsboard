@@ -1,13 +1,13 @@
 # NewsBoard 开发约定（AGENTS.md）
 
-本仓库是「安卓大字新闻看板」的实施方案落地：Blazor 类库 + MAUI(Android) 宿主 + WPF(WebView2) 宿主。
+本仓库是**跨平台**大字新闻看板的实施方案落地：**一套 Blazor 类库**（`NewsBoard.Shared`，零平台依赖）**+ 多个宿主**，**当前已支持 Android 与 Windows 两个平台**（三个可运行宿主：`NewsBoard.Maui` 的 Android 头、`NewsBoard.Wpf`、`NewsBoard.Maui` 的 Windows 头）。Android **不是**「主目标平台」—— 它只是当前唯一做过**真机装机实测**的移动平台。
 
 ## 文档导航与维护纪律
 
 | 文档 | 写什么 |
 |---|---|
-| `README.md` / `README.zh-CN.md` / `README.es.md` | **使用者视角**（英文为默认版，三语并列）：怎么跑（三种运行形态 + Android 前置点源）、界面与操作（含灭屏点屏唤醒）、设置页分组、配置/缓存/Key 在哪、新闻数据流、实测结果、已知限制 |
-| `docs/` | **按主题的正式文档**，每篇三语（`<name>.md` 英 / `<name>.zh-CN.md` 中 / `<name>.es.md` 西）：`index`（索引）、`architecture`、`configuration`、`news-pipeline`、`playback`、`android`、`troubleshooting`、`contributing` |
+| `README.md` / `README.zh-CN.md` / `README.es.md` | **使用者视角**（英文为默认版，三语并列）：怎么跑（三种运行形态与各平台前置）、界面与操作（含灭屏点屏唤醒）、设置页分组、配置/缓存/Key 在哪、新闻数据流、实测结果、已知限制 |
+| `docs/` | **按主题的正式文档**，每篇三语（`<name>.md` 英 / `<name>.zh-CN.md` 中 / `<name>.es.md` 西）：`index`（索引）、`architecture`、`configuration`、`news-pipeline`、`playback`、`android`（平台篇）、`windows`（平台篇）、`troubleshooting`、`contributing` |
 | `docs/android-env-report.md` | Android 工具链环境实测报告（单语） |
 | `plans/news-board.plan.md` | **方案与历史**：决策记录 D1–D5、架构与项目结构、§4 配置项清单（与 `AppConfig` 对齐）、§5 播放引擎、§6 采集与提炼、§8 任务状态表、§10 修订记录 R1–R8、§11–§16 逐轮迭代与事故记录 |
 | `CHANGELOG.md` | 版本变更记录（用户可见的 Added / Changed / Fixed / Verified） |
@@ -47,6 +47,8 @@ MAUI 的 Windows 头用 `WindowsPackageType=None`（非打包）运行，需要 
 Android 工具链在 **`D:\Android`**：JDK 17 于 `D:\Android\jdk-17`、Android SDK 于 `D:\Android\Sdk`（platform-36 / build-tools 36.0.0 / platform-tools）、NDK 27.2.12479018。
 **构建 Android 前必须先点源 `scripts\android-env.ps1`**（本机执行策略是 `Restricted`，故需先 `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force`）；否则报 `XA5300 找不到 Android SDK`。环境现状与占用清单见 `docs\android-env-report.md`。
 **Android 真机（2026-10-08 末次检测）**：`adb devices` 有 **1 台**已授权设备 —— Xiaomi `M2011K2C`（Redmi K40），Android 13 / SDK 33 / arm64-v8a，序列号 `<device-serial>`，**已装机并跑通**（同日；包名 `com.newsboard.app`，versionCode 1 / minSdk 24 / targetSdk 36）：启动渲染、6 个关键字抓回 16 条、关键字标签 + 时钟 + 大字摘要 + 控制条、`config.json`/`news.json` 落 app 私有目录，均实测通过（细节见 plan §15）。**2026-10-08 已补做 Android 侧逐项走查** —— 灭屏/常亮与 TTS 通过、开机自启被 MIUI 拦、长稳见 plan §16。
+
+> **脱敏约定（公开仓库）**：本仓库是**公开**仓库，真机**序列号一律写作 `<device-serial>`**，任何文档（含三语 README / `docs/` / 本文件 / `plans/`）都不得写入真实值。需要真实序列号时现场取：`adb devices -l`。同一约定适用于其它可唯一标识个人设备的标识（IMEI、MAC、手机号、账号 ID 等）——写进文档前先脱敏。
 
 **Android 平台三条实测事实（2026-10-08 真机逐项走查，细节见 plan §16）**：
 - **「黑屏」≠ 关屏**：`AndroidScreenController.SetBlackoutAsync(true)` 只把窗口 `WindowManager.LayoutParams.ScreenBrightness` 置 `0f` + 画全黑遮罩，**物理背光仍然亮着**（`dumpsys power` 的 `mScreenBrightnessOverrideFromWindowManager` 由 `NaN` 变 `0.0`，同刻截图 300KB → 27KB；点屏幕唤醒后回到 `NaN`，截图恢复）。Android 上普通应用**没有免权限的真熄屏手段**（`PowerManager.GoToSleep()` 是签名权限；`DevicePolicyManager.LockNow()` 要设备管理员、还会连带锁屏、唤醒需解锁）。屏幕常亮由窗口标志承担：`dumpsys window` 里可见 `fl=… KEEP_SCREEN_ON …`、`mLastWakeLockHoldingWindow=…MainActivity` —— **黑屏期间不能撤掉它**，否则系统按 `screen_off_timeout`（本机 600000ms）真息屏。
@@ -96,6 +98,18 @@ Android 工具链在 **`D:\Android`**：JDK 17 于 `D:\Android\jdk-17`、Android
   因此 `RssTemplate` 默认改为不含 `{q}` 的共享频道源，并新增 `RssFallbackTemplates` 备用链：模板**含 `{q}`** → 按关键字各抓一次；**不含** → 视为共享源只抓一次。
 - 默认 `FetchMode = Auto`（先走已验证可用的联网搜索通道，RSS 作保底）。
 - Windows 中文 TTS：`System.Speech` 枚举到 `Microsoft Huihui Desktop`(zh-CN)；`SpeakCompleted` 回调可靠（实测触发，产出 290KB WAV）。
+- **平台专属配置项（2026-10-10 逐项读代码核实）**：
+
+  | 配置项 | 生效范围 | 代码依据 |
+  |---|---|---|
+  | `KeepScreenOn` | **仅 Android** | `AndroidScreenController.SetKeepScreenOnAsync` → `DeviceDisplay.Current.KeepScreenOn`；`WpfScreenController` 与 MAUI 的 Windows 头同名方法都是 `=> Task.CompletedTask`（空实现） |
+  | `AndroidShowStatusBar` | **仅 Android** | `AndroidScreenController.SetFullscreenAsync` 用 `WindowInsetsControllerCompat` 隐藏/显示状态栏；MAUI 的 Windows 头是空实现 |
+  | `WindowsBorderlessFullscreen` | **仅 `NewsBoard.Wpf`** | 落到 `MainWindow.ApplyDisplayOptions`（F11 进 / Esc 出）；MAUI 的 Windows 头 `SetFullscreenAsync` 是空实现，故该项在那里无效果 |
+  | `AutoStart` | **三个宿主都实现** | Android：`BootReceiver` + 前台服务；Windows：`HKCU\...\Run`（WPF 与 MAUI 头共用） |
+  | `WifiOnlyFetch` | 无平台限定 | 抓取侧统一逻辑 |
+
+  **注意（既有语义，别当成 bug）**：`PlaybackEngine.StartAsync` 传给 `SetFullscreenAsync` 的是 `!config.AndroidShowStatusBar || config.WindowsBorderlessFullscreen` —— 两个开关是 **OR** 关系，所以在 WPF 上关掉 `AndroidShowStatusBar` 同样会进无边框全屏（反之亦然）。
+- **Windows 侧实测数字（原文出自 plan §8 的 T2 / T8 / T12，2026-10-10 汇总回填）**：WebView2 Runtime 实测版本 **154.0.4258.62**；WPF 无边框全屏实测 **1600x1000@(160,10) → 1920x1080@(0,0)**（F11 进 / Esc 出，配置同步落盘）；`System.Speech` 一次朗读实测 **6135ms** 后 `SpeakCompleted` 触发（产出 290KB WAV），取消 **744ms** 返回；WPF `dotnet publish src\NewsBoard.Wpf -c Release` 实测 **45 文件 / 28.14MB**。
 - **MAUI 宿主页（`src/NewsBoard.Maui/wwwroot/index.html`）绝不可抢在框架之前调用 `Blazor.start()`**：MAUI 的 `BlazorWebView` 会**自己**启动 Blazor 并注册 `MainPage.xaml` 里声明的根组件（`Selector="#app"`）。宿主页脚本一旦抢跑，就会用「没有根组件」的方式把 Blazor 启动起来，框架随后带根组件的启动被拒（控制台 `Uncaught (in promise) Error: Blazor has already started.`，调用方是框架注入的匿名脚本），结果是**进程活着、WebView 在、`#app` 一片空白**（Android 真机实测，2026-10-08；`pidof` 有值、`uiautomator` 里 WebView 铺满屏幕、CDP 查到 `#app.innerHTML.length === 0`）。
   正确写法：宿主页只用定时器观察 —— `#app` 有子节点就撤掉 `#boot-hint` 并结束；超过 3s 仍为空才兜底 `Blazor.start()`（兜底也安全：此时框架必然已过了页面加载，重复调用只会抛错被吞）。回归测试 `Sa5MauiHostPageTests.MAUI宿主页_不抢在框架之前启动Blazor`（断言 `Blazor.start()` 出现在 `setInterval` 之后，断言前先剥掉行注释，否则注释里的字样会误伤）。
   **勘误**：早前这里记的「MAUI 的 index.html 必须显式 `Blazor.start()`、重复调用是幂等的」是**错误结论** —— Android 上重复调用不是幂等的，且抢跑会直接导致黑屏。WPF 的 `index.html` 是另一份文件（**没有** `autostart="false"`，走默认自动启动 + 显式 start），未受影响、保持不变。

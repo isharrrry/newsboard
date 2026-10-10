@@ -6,17 +6,19 @@
 
 ## Dónde están los archivos
 
-| Host | Configuración | Caché de noticias | Clave de API |
-|---|---|---|---|
-| WPF | `%LOCALAPPDATA%\NewsBoard\config.json` | `%LOCALAPPDATA%\NewsBoard\news.json` | `%APPDATA%\NewsBoard\secret.dat` (DPAPI `CurrentUser` + entropy `NewsBoard.SecretStore.v1`; en disco es texto cifrado) |
-| MAUI (Windows) | el mismo archivo que WPF — los dos hosts lo comparten por completo | el mismo archivo | el mismo archivo (la clave sirve en ambos hosts) |
-| MAUI (Android) | directorio privado de la app (`LocalApplicationData`, paquete `com.newsboard.app`) | el mismo directorio | MAUI `SecureStorage` (Android Keystore; no es un archivo en texto plano) |
+NewsBoard es **multiplataforma**: un único conjunto de componentes Razor (`NewsBoard.Shared`, sin dependencias de plataforma) se ejecuta bajo tres hosts — Android (`NewsBoard.Maui`), `NewsBoard.Wpf` y la cabecera de Windows de `NewsBoard.Maui`. Cada host guarda su configuración, su caché y su clave de API en su propio sitio:
 
-- **Cambiar el directorio de datos**: define la variable de entorno `NEWSBOARD_DATA_DIR` (cualquier valor no vacío tiene prioridad). `ConfigStore` y `NewsRepository` comparten este único punto de resolución. Los scripts automáticos o de sondeo **deben** apuntarla a un directorio aislado y nunca al real: un script de sondeo llegó a sobrescribir las 6 palabras clave del usuario con 2 (ver `plans/news-board.plan.md` §13).
+| Plataforma / host | Configuración | Caché de noticias | Clave de API |
+|---|---|---|---|
+| Android — `NewsBoard.Maui` | directorio privado de la app (`LocalApplicationData`, paquete `com.newsboard.app`) | el mismo directorio | MAUI `SecureStorage` (Android Keystore; no es un archivo en texto plano) |
+| Windows — `NewsBoard.Wpf` | `%LOCALAPPDATA%\NewsBoard\config.json` | `%LOCALAPPDATA%\NewsBoard\news.json` | `%APPDATA%\NewsBoard\secret.dat` (DPAPI `CurrentUser` + entropy `NewsBoard.SecretStore.v1`; en disco es texto cifrado) |
+| Windows — `NewsBoard.Maui` (cabecera de Windows) | el mismo archivo que `NewsBoard.Wpf` — los dos hosts de Windows lo comparten por completo | el mismo archivo | el mismo archivo (la clave sirve en ambos hosts) |
+
+- **Cambiar el directorio de datos**: define la variable de entorno `NEWSBOARD_DATA_DIR` (cualquier valor no vacío tiene prioridad, y se aplica a los tres hosts). `ConfigStore` y `NewsRepository` comparten este único punto de resolución. Los scripts automáticos o de sondeo **deben** apuntarla a un directorio aislado y nunca al real: un script de sondeo llegó a sobrescribir las 6 palabras clave del usuario con 2 (ver `plans/news-board.plan.md` §13).
 - **Revertir una escritura errónea**: antes de cada sobrescritura, `ConfigStore` copia la versión anterior a `config.json.bak`.
 - **`ApiKey` nunca llega al JSON**: el campo lleva `[JsonIgnore]` y se inyecta desde el almacén seguro de la plataforma bajo el nombre `ConfigStore.ApiKeySecretName` (`deepseek-api-key`).
-- **Cómo entra la clave en Android**: `secret.dat` está cifrado con DPAPI para el usuario actual de Windows y está atado a esa máquina, así que copiarlo al teléfono no sirve de nada. Vuelve a pegar la clave de API de DeepSeek en el dispositivo, en Ajustes → API / obtención.
-- **Inicio automático al arrancar** (Windows) se escribe en `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
+- **Cómo entra la clave en cada host**: los dos hosts de Windows comparten `%APPDATA%\NewsBoard\secret.dat` (DPAPI para el usuario actual de Windows con la entropy anterior), así que basta con introducir la clave una vez para ambos. Ese archivo está atado a la máquina, de modo que no sirve en un teléfono: en Android vuelve a pegar la clave de API de DeepSeek en el propio dispositivo, en Ajustes → API / obtención, donde se guarda en el Android Keystore.
+- **Inicio automático al arrancar**: los dos hosts de Windows escriben `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`; Android usa `BootReceiver` más un servicio en primer plano con notificación residente, que un gestor de inicio automático del fabricante (MIUI, por ejemplo) todavía puede bloquear — ver [Android](android.es.md).
 
 ## Página de Ajustes
 
@@ -28,7 +30,7 @@
 | **API / obtención** | modo de obtención, BaseUrl / Model / endpoint de búsqueda y max_uses, clave de API, lista de palabras clave, elementos por palabra clave, intervalo de obtención, longitud del resumen, idioma del resumen, intervalo mínimo de IA, fuente RSS y alternativas, solo noticias de hoy, umbral de importancia, días de retención |
 | **Apariencia** | colores de fondo / texto / acento, tamaño y peso de la fuente del cuerpo, altura de línea, margen interior, tamaño de la etiqueta de palabra clave, alineación, mostrar reloj, tamaño y fuente del reloj, mostrar palabra clave / título / fuente |
 | **Reproducción / lectura en voz alta** | lectura activada, contenido leído, idioma, velocidad, tono, silencio previo, franja silenciosa, política cuando el TTS no está disponible, duración de pantalla encendida, permanencia por elemento, velocidad de desplazamiento, duración del apagado (blackout), ciclo de apagado, modo de apagado, comportamiento al terminar la ventana, posición de la imagen y porcentaje de pantalla, orden de reproducción, continuar entre rondas |
-| **Sistema / host** | mantener pantalla encendida, inicio automático al arrancar, obtener solo por WiFi, pantalla completa sin bordes en Windows, mostrar barra de estado en Android |
+| **Sistema / host** | mantener pantalla encendida (Android), inicio automático al arrancar (los tres hosts), obtener solo por WiFi, pantalla completa sin bordes en Windows (WPF), mostrar barra de estado en Android |
 
 Barra inferior: **Guardar / Cancelar / Restaurar valores predeterminados**. «Restaurar valores predeterminados» solo restablece los valores que se están editando en esta página — no borra la clave de API guardada — y nada surte efecto hasta pulsar Guardar. La fila del inicio automático lee el estado real de la plataforma a través de `IAutoStart`, y el grupo incluye además una autoprueba de «apagado durante 2 segundos» que no toca la configuración.
 
@@ -109,11 +111,11 @@ Los nombres de campo son los identificadores de `src/NewsBoard.Shared/Services/A
 
 | Campo | Valor predeterminado | Significado |
 |---|---|---|
-| `KeepScreenOn` | `true` | surte efecto en Android; los hosts de escritorio lo implementan como no-op |
-| `AutoStart` | `true` | inicio automático al arrancar; ver `plans/news-board.plan.md` §3.4 |
+| `KeepScreenOn` | `true` | solo en Android: se implementa con la marca de ventana `KEEP_SCREEN_ON`, que se mantiene incluso durante el apagado. Los dos hosts de Windows lo implementan como no-op |
+| `AutoStart` | `true` | inicio automático al arrancar, en los tres hosts: los hosts de Windows escriben la clave `HKCU\…\Run`, y Android inicia `BootReceiver` y el servicio en primer plano; ver `plans/news-board.plan.md` §3.4 |
 | `WifiOnlyFetch` | `false` | desactivado significa que se permite obtener por datos móviles |
-| `WindowsBorderlessFullscreen` | `false` | desactivado significa una ventana normal con barra de título; se puede activar en Ajustes |
-| `AndroidShowStatusBar` | `true` | activado mantiene visibles reloj y batería; desactivado significa pantalla completa inmersiva |
+| `WindowsBorderlessFullscreen` | `false` | desactivado significa una ventana normal con barra de título; se puede activar en Ajustes. Surte efecto en `NewsBoard.Wpf` (F11 para entrar, Esc para salir); la cabecera de Windows de `NewsBoard.Maui` implementa `SetFullscreenAsync` como no-op, así que allí el valor no tiene efecto |
+| `AndroidShowStatusBar` | `true` | solo en Android: activado mantiene visibles reloj y batería; desactivado significa pantalla completa inmersiva |
 
 ## Campos que se prestan a confusión
 

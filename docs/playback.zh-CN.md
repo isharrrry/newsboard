@@ -4,7 +4,7 @@
 
 > NewsBoard 文档的一部分 —— 返回 [README](../README.zh-CN.md)
 
-`PlaybackEngine`（在 `src/NewsBoard.Shared/Services/PlaybackEngine.cs`）是一个两阶段状态机：在本轮的 SHOW 窗口里逐条播放播放列表，窗口到点进 BLACKOUT，黑屏结束开下一轮。它只依赖 `Abstractions` 里的接口，所有时间都取自注入的 `IClock` —— 这正是它能在测试里用可缩放时钟精确驱动的原因。
+`PlaybackEngine`（在 `src/NewsBoard.Shared/Services/PlaybackEngine.cs`）是一个两阶段状态机：在本轮的 SHOW 窗口里逐条播放播放列表，窗口到点进 BLACKOUT，黑屏结束开下一轮。它只依赖 `Abstractions` 里的接口，所有时间都取自注入的 `IClock` —— 这正是它能在测试里用可缩放时钟精确驱动的原因。三个宿主共用这一份引擎：Android 的 `NewsBoard.Maui`、Windows 的 `NewsBoard.Wpf`，以及 `NewsBoard.Maui` 的 Windows 头；平台差异只出现在下文按平台并列的地方。
 
 ## 状态机
 
@@ -32,7 +32,12 @@ SHOW 窗口（ShowDurationSeconds，默认 60 秒）
 
 语音不可用时 —— `SpeechEnabled` 关闭、宿主报告 TTS 不可用、或当前时间落在 `QuietHours` 里 —— 该条回退到固定的 `ItemHoldSeconds`（12 秒），滚动按 `ScrollSpeedPxPerSecond`（60）走。当 `TtsUnavailable = SkipItem` 时，念不了的条目不占任何时间，直接跳过。
 
-Windows 实测：`System.Speech` 配 `Microsoft Huihui Desktop`（zh-CN）念一条摘要用 6135 ms，`SpeakCompleted` 按时触发；取消在 744 ms 内返回。
+语音引擎由宿主提供，三个宿主用两套实现：
+
+| 平台 | 语音引擎 | 实测 |
+|---|---|---|
+| Android（`NewsBoard.Maui`） | 设备自带的 TTS 引擎 | 在一台小米设备上实测为 `com.xiaomi.mibrain.speech` |
+| Windows（`NewsBoard.Wpf`，以及 `NewsBoard.Maui` 的 Windows 头） | `System.Speech` | `Microsoft Huihui Desktop`（zh-CN）念一条摘要用 6135 ms，`SpeakCompleted` 按时触发；取消在 744 ms 内返回 |
 
 ## 首帧闸门
 
@@ -54,17 +59,22 @@ Windows 实测：加闸门之前，朗读比画面早约 1.9 秒，启动头 2.9
 
 黑屏期间控制条是隐藏的（`board-controls--hidden`），黑色遮罩铺满屏幕，所以点哪儿都落在遮罩上并调用 `WakeAsync()`：灭屏立刻结束、画面回来、窗口从当前条重新起算。SHOW 期间点击没有任何作用 —— 不切条，也不缩短窗口。Windows 实测：亮度 58.4 → 打断 0 → 点一下 58.4。
 
-## 灭屏因平台而异
+## 灭屏与屏幕常亮：平台差异
 
-| 宿主 | 灭屏做了什么 | 实测 |
-|---|---|---|
-| WPF | 真的关掉显示器：`SendMessageTimeout(HWND_BROADCAST, WM_SYSCOMMAND(0x0112), SC_MONITORPOWER(0xF170), 2 / -1, SMTO_ABORTIFHUNG, 1000)`（2 = 关，−1 = 开） | 关屏动作本身未人工确认，见「已知限制」 |
-| MAUI(Windows) | 同一个 Win32 广播；因为该宿主不做无边框全屏，护栏退化为「应用窗口是前台」 | — |
-| MAUI(Android) | 窗口亮度置 0 + 全黑遮罩；**背光仍然亮着** | 亮度覆盖 `NaN`（无覆盖）→ `0.0`，截图 300,867 B → 27,787 B，1.2 秒内完成；点屏幕后回到 `NaN` 与 300,867 B |
+| 能力 | Android（`NewsBoard.Maui`） | Windows（`NewsBoard.Wpf`） | Windows（`NewsBoard.Maui` 的 Windows 头） |
+|---|---|---|---|
+| 黑屏 / 灭屏 | 窗口亮度置 0 + 全黑遮罩，**物理背光仍然亮着** | **真正关掉显示器**：`SendMessageTimeout(HWND_BROADCAST, WM_SYSCOMMAND(0x0112), SC_MONITORPOWER(0xF170), 2 / -1, SMTO_ABORTIFHUNG, 1000)`（2 = 关，−1 = 开） | 同一个 Win32 广播 |
+| 关屏安全护栏 | 不适用 | 只有「应用窗口是前台窗口」**或**「窗口是无边框全屏」才真的关屏（`MonitorPowerPolicy`） | 同上；因为该宿主不做无边框全屏，护栏退化为「应用窗口是前台」 |
+| 屏幕常亮 | 窗口标志 `KEEP_SCREEN_ON` 承担，**黑屏期间故意不撤** | 空实现（桌面无此需求） | 空实现 |
 
-`MonitorPowerPolicy` 是共用的纯逻辑护栏：只有「应用窗口是前台窗口」**或**「窗口是无边框全屏」才真的关屏。你切到别的程序去干活时，看板只显示黑遮罩，不会把你屏幕黑掉。反过来，**开屏**故意不受护栏限制 —— 否则一个关了屏又失去焦点的看板就永远叫不醒屏幕了。
+实测证据：
 
-Android 上普通应用没有免权限的真熄屏手段：`PowerManager.GoToSleep()` 是签名权限，`DevicePolicyManager.LockNow()` 要设备管理员权限、还会连带锁屏，唤醒就得先解锁。Android 的常亮由窗口标志 `KEEP_SCREEN_ON` 承担，引擎在黑屏期间**故意不撤**它 —— 撤了系统就会按 `screen_off_timeout` 真的把屏幕关掉。
+- Android：亮度覆盖 `NaN`（无覆盖）→ `0.0`，同刻截图 300,867 B → 27,787 B，1.2 秒内完成；点屏幕后回到 `NaN` 与 300,867 B。
+- Windows（`NewsBoard.Wpf`）：关屏动作本身未人工确认，见「已知限制」。
+
+`MonitorPowerPolicy` 是共用的纯逻辑护栏（即上表「关屏安全护栏」那一行的规则）：只有「应用窗口是前台窗口」**或**「窗口是无边框全屏」才真的关屏。你切到别的程序去干活时，看板只显示黑遮罩，不会把你屏幕黑掉。反过来，**开屏**故意不受护栏限制 —— 否则一个关了屏又失去焦点的看板就永远叫不醒屏幕了。
+
+Android 上普通应用没有免权限的真熄屏手段：`PowerManager.GoToSleep()` 是签名权限，`DevicePolicyManager.LockNow()` 要设备管理员权限、还会连带锁屏，唤醒就得先解锁。Android 的常亮由窗口标志 `KEEP_SCREEN_ON` 承担，引擎在黑屏期间**故意不撤**它 —— 撤了系统就会按 `screen_off_timeout`（本机实测 600000 ms）真的把屏幕关掉。
 
 ## 长稳实测
 

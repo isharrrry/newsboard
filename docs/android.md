@@ -4,7 +4,9 @@
 
 > Part of the NewsBoard documentation — back to [README](../README.md)
 
-NewsBoard's main target is Android: a MAUI host (`src/NewsBoard.Maui`, TFM `net10.0-android`) rendering the same Blazor UI as the Windows hosts, on a phone that sits on a desk and reads the news out loud.
+This page is **one of the platform pages**; for the cross-platform overview see the [README](../README.md) and [Architecture](architecture.md), and the Windows side in [Windows hosts](windows.md).
+
+The Android host is `src/NewsBoard.Maui` (TFM `net10.0-android`), rendering the same Blazor UI as the Windows hosts, on a phone that sits on a desk and reads the news out loud. It is the only mobile platform that has been measured on real hardware so far.
 
 ## Toolchain and prerequisites
 

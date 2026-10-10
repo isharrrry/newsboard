@@ -4,7 +4,9 @@
 
 > NewsBoard 文档的一部分 —— 返回 [README](../README.zh-CN.md)
 
-NewsBoard 的主目标平台是 Android：MAUI 宿主（`src/NewsBoard.Maui`，目标框架 `net10.0-android`）渲染与 Windows 两端相同的 Blazor 界面，跑在一台搁在桌上、会念新闻的手机上。
+本篇是 NewsBoard 的**平台篇之一**；跨平台总览见 [README](../README.zh-CN.md) 与 [架构](architecture.zh-CN.md)，Windows 侧见 [Windows 宿主](windows.zh-CN.md)。
+
+Android 宿主是 `src/NewsBoard.Maui`（目标框架 `net10.0-android`），渲染与 Windows 宿主相同的 Blazor 界面，跑在一台搁在桌上、会念新闻的手机上。它是当前唯一做过真机装机实测的移动平台。
 
 ## 工具链前置
 

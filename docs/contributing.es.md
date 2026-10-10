@@ -28,6 +28,8 @@ Windows necesita el WebView2 Runtime. Las compilaciones de Android necesitan la 
 
 ## 2. Comandos de compilación y pruebas
 
+### Biblioteca compartida y pruebas
+
 ```powershell
 # Biblioteca compartida (aquí vive toda la lógica pura y la UI)
 dotnet build src\NewsBoard.Shared\NewsBoard.Shared.csproj -v q --nologo
@@ -35,26 +37,36 @@ dotnet build src\NewsBoard.Shared\NewsBoard.Shared.csproj -v q --nologo
 # Pruebas unitarias
 dotnet test src\NewsBoard.Tests\NewsBoard.Tests.csproj --nologo
 
+# Solución completa (WPF + MAUI/Android + MAUI/Windows)
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force; . .\scripts\android-env.ps1
+dotnet build NewsBoard.slnx -v q --nologo
+```
+
+### Hosts de Windows
+
+```powershell
 # Host de WPF (escritorio de Windows; también la forma más rápida de depurar la capa Blazor)
 dotnet run --project src\NewsBoard.Wpf
 
 # Cabecera MAUI de Windows (sin empaquetar)
 dotnet build src\NewsBoard.Maui\NewsBoard.Maui.csproj -f net10.0-windows10.0.19041.0 -v q --nologo
 dotnet run --project src\NewsBoard.Maui -f net10.0-windows10.0.19041.0
+```
 
+### Host de Android
+
+```powershell
 # APK de Android (salida: bin\Debug\net10.0-android\*-Signed.apk)
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force; . .\scripts\android-env.ps1
 dotnet build src\NewsBoard.Maui\NewsBoard.Maui.csproj -f net10.0-android -v q --nologo
 
 # Android: compilar + instalar en el dispositivo conectado — los paquetes Debug SOLO se pueden implementar así
 dotnet build src\NewsBoard.Maui\NewsBoard.Maui.csproj -f net10.0-android -t:Install -v q --nologo
-
-# Solución completa (WPF + MAUI/Android + MAUI/Windows)
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force; . .\scripts\android-env.ps1
-dotnet build NewsBoard.slnx -v q --nologo
 ```
 
 Cargar `scripts\android-env.ps1` es obligatorio antes de cualquier compilación de Android: sin él aparece `XA5300 找不到 Android SDK`. El script es idempotente y solo define variables en el proceso actual — nunca toca variables de entorno de máquina ni de usuario. La política de ejecución local es `Restricted`, de ahí la línea `Set-ExecutionPolicy -Scope Process`.
+
+Los requisitos por plataforma, las formas de ejecución y las diferencias de capacidades están en [Android](android.es.md) y [Hosts de Windows](windows.es.md).
 
 ---
 
@@ -130,20 +142,28 @@ Un cambio de comportamiento, de un elemento de configuración o de un comando de
 
 ## 8. Aún sin verificar
 
-Tal cual, no como "debería funcionar":
+Tal cual, no como "debería funcionar". Separado por plataforma.
 
-1. **El apagado real del monitor en Windows no se ha confirmado a mano.** `SC_MONITORPOWER` y la protección `MonitorPowerPolicy` están implementados, pero ninguna ejecución automática ha observado un cambio real de retroiluminación.
-2. **El inicio automático al arrancar en Android nunca ha funcionado ni una vez.** La cadena es correcta, pero MIUI lo bloquea hasta que el usuario concede el permiso de inicio automático a mano; antes de eso el registro del sistema termina en `process is not permitted to auto start`.
-3. **La estabilidad de Android solo está medida durante 20 minutos** (sin fallos, sin ANR, memoria estabilizada entre 295 y 302 MB), mientras que el criterio de aceptación del plan es de 2 horas.
-4. **La pantalla completa inmersiva en Android (barra de estado oculta) no se ha verificado** en un dispositivo.
-5. **Nunca se ha instalado un APK de Release en un dispositivo** — solo se implementaron compilaciones Debug (Debug 14.97 MB / Release 28.77 MB).
-6. **El trimming / AOT de Release no está activado**, y la salida de publicación de WPF no es autocontenida ni de archivo único.
-7. **Cambiar el idioma del resumen no reescribe los resúmenes en caché** — hay que borrar `news.json` o esperar a que venza la retención por día natural.
-8. **El filtro "mostrar solo los elementos que coinciden con una palabra clave" no existe**; por ahora una palabra clave es solo una etiqueta de agrupación.
-9. **La velocidad de desplazamiento guiada por TTS** ("desplazarse hasta el final justo cuando termina la lectura") solo está cubierta por pruebas unitarias, sin verificación a nivel de audio.
-10. **El ciclo "cambiar ajustes en la interfaz → matar el proceso → reiniciar"** no está automatizado.
-11. **No hay emulador / AVD** en esta máquina.
+### Android
+
+1. **El inicio automático al arrancar nunca ha funcionado ni una vez.** La cadena es correcta, pero MIUI lo bloquea hasta que el usuario concede el permiso de inicio automático a mano; antes de eso el registro del sistema termina en `process is not permitted to auto start`.
+2. **La estabilidad solo está medida durante 20 minutos** (sin fallos, sin ANR, memoria estabilizada entre 295 y 302 MB), mientras que el criterio de aceptación del plan es de 2 horas.
+3. **La pantalla completa inmersiva (barra de estado oculta) no se ha verificado** en un dispositivo.
+4. **Nunca se ha instalado un APK de Release en un dispositivo** — solo se implementaron compilaciones Debug (Debug 14.97 MB / Release 28.77 MB).
+5. **No hay emulador / AVD** en esta máquina.
+
+### Windows
+
+1. **El apagado real del monitor no se ha confirmado a mano.** `SC_MONITORPOWER` y la protección `MonitorPowerPolicy` están implementados, pero ninguna ejecución automática ha observado un cambio real de retroiluminación.
+2. **El trimming / AOT de Release no está activado**, y la salida de publicación de WPF no es autocontenida ni de archivo único.
+
+### Independiente de la plataforma
+
+1. **Cambiar el idioma del resumen no reescribe los resúmenes en caché** — hay que borrar `news.json` o esperar a que venza la retención por día natural.
+2. **El filtro "mostrar solo los elementos que coinciden con una palabra clave" no existe**; por ahora una palabra clave es solo una etiqueta de agrupación.
+3. **La velocidad de desplazamiento guiada por TTS** ("desplazarse hasta el final justo cuando termina la lectura") solo está cubierta por pruebas unitarias, sin verificación a nivel de audio.
+4. **El ciclo "cambiar ajustes en la interfaz → matar el proceso → reiniciar"** no está automatizado.
 
 ---
 
-Relacionado: [Solución de problemas](troubleshooting.es.md) · [Arquitectura](architecture.es.md) · [Notas de Android](android.es.md) · [Índice de documentación](index.es.md)
+Relacionado: [Solución de problemas](troubleshooting.es.md) · [Arquitectura](architecture.es.md) · [Android](android.es.md) · [Hosts de Windows](windows.es.md) · [Índice de documentación](index.es.md)

@@ -7,3 +7,6 @@ obj/
 .vs/
 TestResults/
 *.dmp
+
+# 与本产品无关的本地归档（2026-10-10 从版本控制移除，本地文件保留）
+nn-.agent-presets.rar

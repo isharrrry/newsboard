@@ -12,13 +12,13 @@
 - **模型筛选** —— 每条带 70 字摘要与 0–1 的重要度，低于重要度门槛（默认 0.7）的不进播放列表。
 - **语音播报** —— 系统 TTS 念摘要，念完即切下一条：朗读就是该条的时钟。
 
-1 套 Razor 组件（`NewsBoard.Shared`）+ 2 个宿主：
+NewsBoard 是一个**跨平台**的大字新闻看板：**1 套 Razor 组件（`NewsBoard.Shared`，零平台依赖）+ 多个宿主**。**当前已支持 Android 与 Windows 两个平台**，共 3 个可运行的宿主：
 
-| 宿主 | 目标平台 | 用途 |
-|---|---|---|
-| `NewsBoard.Wpf` | Windows 桌面（WPF + WebView2） | 完整功能；也是调试 Blazor 层最快的途径 |
-| `NewsBoard.Maui` | Android（`net10.0-android`） | 主目标平台，产出 APK |
-| `NewsBoard.Maui` 的 Windows 头 | Windows 桌面（`net10.0-windows10.0.19041.0`） | 在 PC 上跑 Android 那套宿主代码 |
+| 平台 | 宿主 | 技术栈 / TFM | 状态 |
+|---|---|---|---|
+| Android | `NewsBoard.Maui` | .NET MAUI + `BlazorWebView`，`net10.0-android` | 已支持；真机（Android 13 / arm64-v8a）装机实测通过，产出 APK |
+| Windows | `NewsBoard.Wpf` | WPF + WebView2，`net10.0-windows10.0.19041.0` | 已支持；本机实测运行，`dotnet publish -c Release` 产出 45 文件 / 28.14MB |
+| Windows | `NewsBoard.Maui` 的 Windows 头 | .NET MAUI + `BlazorWebView`，同一 TFM | 已支持；以 `WindowsPackageType=None` 非打包运行，需 Windows App Runtime（本机 1.6 / 1.7 / 1.8） |
 
 ![新闻看板在 Android 手机上运行](screenshots/01-board-android.png)
 
@@ -28,13 +28,19 @@
 
 前置：**.NET SDK 10**（本机实测 10.0.203 / runtime 10.0.7）；Windows 需要 **WebView2 Runtime**（本机实测 154.0.4258.62）。首次使用要在设置页填一个 DeepSeek API Key，否则抓取与提炼都会失败。
 
+**Windows**
+
 ```powershell
 # WPF 宿主（推荐先用它看效果）
 dotnet run --project src\NewsBoard.Wpf
 
 # MAUI 的 Windows 头
 dotnet run --project src\NewsBoard.Maui -f net10.0-windows10.0.19041.0
+```
 
+**Android**
+
+```powershell
 # 构建 Android APK（产出 bin\Debug\net10.0-android\*-Signed.apk）
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force; . .\scripts\android-env.ps1
 dotnet build src\NewsBoard.Maui\NewsBoard.Maui.csproj -f net10.0-android -v q --nologo
@@ -42,7 +48,11 @@ dotnet build src\NewsBoard.Maui\NewsBoard.Maui.csproj -f net10.0-android -v q --
 # 构建 + 安装到已连接的设备（调试包必须走这个目标）
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force; . .\scripts\android-env.ps1
 dotnet build src\NewsBoard.Maui\NewsBoard.Maui.csproj -f net10.0-android -t:Install -v q --nologo
+```
 
+**全平台**
+
+```powershell
 # 全解决方案（WPF + MAUI/Android + MAUI/Windows）
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force; . .\scripts\android-env.ps1
 dotnet build NewsBoard.slnx -v q --nologo
@@ -52,6 +62,21 @@ dotnet test src\NewsBoard.Tests\NewsBoard.Tests.csproj --nologo
 ```
 
 > Android 构建**必须先点源** `scripts\android-env.ps1`，否则报 `XA5300 找不到 Android SDK`（本机执行策略是 Restricted，故先放开当前进程）。Android 完整前置与装机细节见 [docs/android.zh-CN.md](docs/android.zh-CN.md)。
+
+## 平台能力对照
+
+| 能力 | Android | Windows（`NewsBoard.Wpf`） | Windows（`NewsBoard.Maui` 的 Windows 头） |
+|---|---|---|---|
+| 黑屏 / 灭屏 | 窗口亮度置 0 + 全黑遮罩，**物理背光仍然亮着** | **真正关掉显示器**（`WM_SYSCOMMAND` / `SC_MONITORPOWER`，2=关 / -1=开） | 同 WPF；但本头不做无边框全屏，护栏退化为「仅前台」 |
+| 关屏安全护栏 | 不适用 | 仅在「应用窗口是前台 **或** 已无边框全屏」时关屏；**开屏不受护栏限制** | 同左，但全屏条件恒为 false |
+| 屏幕常亮 | `KEEP_SCREEN_ON` 窗口标志承担，**黑屏期间也不撤** | 空实现（桌面无此需求） | 空实现 |
+| 全屏 | 沉浸式：隐藏系统状态栏（配置项 `AndroidShowStatusBar`） | 无边框全屏（F11 进入 / Esc 退出；实测 `1600x1000@(160,10)` → `1920x1080@(0,0)`） | 不做（`SetFullscreenAsync` 为空实现） |
+| 语音合成 | 设备自带 TTS 引擎（实测 `com.xiaomi.mibrain.speech`） | `System.Speech`（实测枚举到 `Microsoft Huihui Desktop` zh-CN；`SpeakCompleted` 回调可靠） | `System.Speech`（同 WPF） |
+| 开机自启 | `BootReceiver` + 前台服务 + 常驻通知；厂商自启动管理（如 MIUI）可能拦截 | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` | 同 WPF |
+| 配置 / 缓存目录 | app 私有目录（包名 `com.newsboard.app`） | `%LOCALAPPDATA%\NewsBoard\`（`config.json` / `news.json`） | 同 WPF，**与 WPF 完全共用** |
+| API Key | MAUI `SecureStorage`（Android Keystore 加密，非明文文件） | `%APPDATA%\NewsBoard\secret.dat`（DPAPI CurrentUser + entropy `NewsBoard.SecretStore.v1`） | 同 WPF（2 个宿主共用 1 个密钥） |
+| 打开原文 | 系统浏览器（Intent） | 默认浏览器 | 默认浏览器 |
+| 数据目录覆盖 | 环境变量 `NEWSBOARD_DATA_DIR`（3 个宿主通用） | 同左 | 同左 |
 
 ## 界面与操作
 
@@ -122,6 +147,7 @@ dotnet test src\NewsBoard.Tests\NewsBoard.Tests.csproj --nologo
 | [docs/news-pipeline.zh-CN.md](docs/news-pipeline.zh-CN.md) | 2 条通道与回退顺序、去重与 AI 冷却、正文抓取、摘要与重要度、配图 |
 | [docs/playback.zh-CN.md](docs/playback.zh-CN.md) | 播放状态机、朗读即时钟、5 个按钮与手势、灭屏的平台差异、长稳结果 |
 | [docs/android.zh-CN.md](docs/android.zh-CN.md) | Android 工具链、构建与装机命令、真机验收、3 条平台事实 |
+| [docs/windows.zh-CN.md](docs/windows.zh-CN.md) | Windows 宿主：WPF 宿主与 MAUI 的 Windows 头 |
 | [docs/troubleshooting.zh-CN.md](docs/troubleshooting.zh-CN.md) | 常见症状 → 原因 → 处置，每条带可执行命令 |
 | [docs/contributing.zh-CN.md](docs/contributing.zh-CN.md) | 环境与命令、文件所有权、编码约定、提交前门禁、文档纪律 |
 | [docs/android-env-report.md](docs/android-env-report.md) | Android 工具链环境实测报告（单语） |
@@ -147,12 +173,20 @@ dotnet build NewsBoard.slnx -v q --nologo          # 3 头全量（需先点源 
 
 ## 已知限制
 
+**Android**
+
 - **Android 已装机跑通并完成逐项走查**（2026-10-08，Xiaomi `M2011K2C` / Redmi K40 / Android 13 / arm64-v8a）：启动渲染、6 个关键字抓回 16 条、关键字标签 + 时钟 + 大字摘要 + 控制条、配置与缓存落在 app 私有目录；点「打断」后窗口亮度归 0（1.2 秒内生效）且画面全黑、点屏幕唤醒即恢复；屏幕由 `KEEP_SCREEN_ON` 保持常亮；中文 TTS 逐条真实朗读（`dumpsys audio` 里连续 5 次 `CONTENT_TYPE_SPEECH` 的 AudioTrack，单条 7.4–14.6 秒，条间约 1 秒）。
 - **Android 的「灭屏」不是物理关屏**：只把**窗口亮度置 0 + 画面全黑**，屏幕背光仍然亮着。Android 上普通应用没有免权限的真熄屏手段（`GoToSleep()` 是签名权限；`LockNow()` 要设备管理员、会连带锁屏且唤醒需解锁）。Windows 版才是**真关屏**（`SC_MONITORPOWER`）。
 - **Android 开机自启需要厂商放行**：代码链路正确（`BootReceiver` 确实收到了 `BOOT_COMPLETED`），但在本机被 MIUI 的「自启动管理」拦下（系统日志 `process is not permitted to auto start`，`MIUIOP(10021): ignore`）。**手动放行**：设置 → 应用设置 → 应用管理 → 新闻看板 → **自启动**（打开）；建议同时把「省电策略」设为**无限制**。放行后重启即会拉起常驻通知（不走 `StartActivity`，点通知进看板）。
 - **Android 的 TTS 音质取决于手机自带语音引擎**（本机是 `com.xiaomi.mibrain.speech`），音色与自然度要自己听；应用只负责把摘要交给它念。
-- **联网搜索通道自身不返回正文，但正文照样会被补抓**：该通道由模型直接给出摘要，不过正文补抓对 2 条通道统一生效（条件是 `Description` 不足 300 字），所以联网条目的 `RawContent` 可以非 null。实测本机缓存 **313 条**（全部来自联网搜索），其中 **92 条** `RawContent` 非 null、长度 109–2000 字符；补抓失败的仍为 null。
+
+**Windows**
+
 - **Windows 真关屏未人工确认**：实现走 `SC_MONITORPOWER` 且带护栏（仅「前台 或 无边框全屏」才关屏，开屏不受限），但自动化里没实机触发过背光变化。
+
+**与平台无关**
+
+- **联网搜索通道自身不返回正文，但正文照样会被补抓**：该通道由模型直接给出摘要，不过正文补抓对 2 条通道统一生效（条件是 `Description` 不足 300 字），所以联网条目的 `RawContent` 可以非 null。实测本机缓存 **313 条**（全部来自联网搜索），其中 **92 条** `RawContent` 非 null、长度 109–2000 字符；补抓失败的仍为 null。
 - **摘要语言切换不重写历史缓存**（见上文「新闻是怎么来的」）。
 - 「只显示命中关键字的新闻」过滤开关**未做**；当前关键字只用于分组标签与展示。
 

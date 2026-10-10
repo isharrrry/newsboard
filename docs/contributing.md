@@ -28,6 +28,8 @@ Windows needs the WebView2 Runtime. Android builds need the toolchain above and,
 
 ## 2. Build and test commands
 
+### Shared library and tests
+
 ```powershell
 # Shared library (all pure logic and UI live here)
 dotnet build src\NewsBoard.Shared\NewsBoard.Shared.csproj -v q --nologo
@@ -35,26 +37,36 @@ dotnet build src\NewsBoard.Shared\NewsBoard.Shared.csproj -v q --nologo
 # Unit tests
 dotnet test src\NewsBoard.Tests\NewsBoard.Tests.csproj --nologo
 
+# Whole solution (WPF + MAUI/Android + MAUI/Windows)
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force; . .\scripts\android-env.ps1
+dotnet build NewsBoard.slnx -v q --nologo
+```
+
+### Windows hosts
+
+```powershell
 # WPF host (Windows desktop; also the fastest way to debug the Blazor layer)
 dotnet run --project src\NewsBoard.Wpf
 
 # MAUI Windows head (unpackaged)
 dotnet build src\NewsBoard.Maui\NewsBoard.Maui.csproj -f net10.0-windows10.0.19041.0 -v q --nologo
 dotnet run --project src\NewsBoard.Maui -f net10.0-windows10.0.19041.0
+```
 
+### Android host
+
+```powershell
 # Android APK (output: bin\Debug\net10.0-android\*-Signed.apk)
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force; . .\scripts\android-env.ps1
 dotnet build src\NewsBoard.Maui\NewsBoard.Maui.csproj -f net10.0-android -v q --nologo
 
 # Android: build + install on the connected device — Debug packages can ONLY be deployed this way
 dotnet build src\NewsBoard.Maui\NewsBoard.Maui.csproj -f net10.0-android -t:Install -v q --nologo
-
-# Whole solution (WPF + MAUI/Android + MAUI/Windows)
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force; . .\scripts\android-env.ps1
-dotnet build NewsBoard.slnx -v q --nologo
 ```
 
 Sourcing `scripts\android-env.ps1` is mandatory before any Android build: without it you get `XA5300 找不到 Android SDK`. The script is idempotent and only sets variables in the current process — it never touches machine-level or user-level environment variables. The local execution policy is `Restricted`, hence the `Set-ExecutionPolicy -Scope Process` line.
+
+Per-platform prerequisites, run modes and capability differences are in [Android](android.md) and [Windows hosts](windows.md).
 
 ---
 
@@ -130,20 +142,28 @@ A change to behaviour, a configuration item, or a command must update the docume
 
 ## 8. Not yet verified
 
-Stated as-is, not as "should work":
+Stated as-is, not as "should work". Split by platform.
 
-1. **Windows real monitor power-off has not been confirmed by hand.** `SC_MONITORPOWER` plus the `MonitorPowerPolicy` guard is implemented, but no automated run has observed an actual backlight change.
-2. **Android auto-start on boot has never succeeded once.** The chain is correct, but MIUI blocks it until the user grants the autostart permission manually; before that the system log ends with `process is not permitted to auto start`.
-3. **Android long-run stability is only measured for 20 minutes** (no crash, no ANR, memory plateauing between 295 and 302 MB), while the acceptance criterion in the plan is 2 hours.
-4. **Android immersive full screen (status bar hidden) has not been verified** on a device.
-5. **A Release APK has never been installed on a device** — only Debug builds were deployed (Debug 14.97 MB / Release 28.77 MB).
-6. **Release trimming / AOT is not enabled**, and the WPF publish output is neither self-contained nor single-file.
-7. **Switching the summary language does not rewrite cached summaries** — you must delete `news.json` or wait for the calendar-day retention to expire.
-8. **The "show only items that match a keyword" filter does not exist**; a keyword is currently only a grouping label.
-9. **TTS-driven scroll speed** ("scroll to the bottom exactly when the reading ends") is covered by unit tests only, with no audio-level verification.
-10. **The round trip "change settings in the UI, kill the process, restart"** has not been automated.
-11. **There is no emulator / AVD** on this machine.
+### Android
+
+1. **Auto-start on boot has never succeeded once.** The chain is correct, but MIUI blocks it until the user grants the autostart permission manually; before that the system log ends with `process is not permitted to auto start`.
+2. **Long-run stability is only measured for 20 minutes** (no crash, no ANR, memory plateauing between 295 and 302 MB), while the acceptance criterion in the plan is 2 hours.
+3. **Immersive full screen (status bar hidden) has not been verified** on a device.
+4. **A Release APK has never been installed on a device** — only Debug builds were deployed (Debug 14.97 MB / Release 28.77 MB).
+5. **There is no emulator / AVD** on this machine.
+
+### Windows
+
+1. **Real monitor power-off has not been confirmed by hand.** `SC_MONITORPOWER` plus the `MonitorPowerPolicy` guard is implemented, but no automated run has observed an actual backlight change.
+2. **Release trimming / AOT is not enabled**, and the WPF publish output is neither self-contained nor single-file.
+
+### Platform-independent
+
+1. **Switching the summary language does not rewrite cached summaries** — you must delete `news.json` or wait for the calendar-day retention to expire.
+2. **The "show only items that match a keyword" filter does not exist**; a keyword is currently only a grouping label.
+3. **TTS-driven scroll speed** ("scroll to the bottom exactly when the reading ends") is covered by unit tests only, with no audio-level verification.
+4. **The round trip "change settings in the UI, kill the process, restart"** has not been automated.
 
 ---
 
-Related: [Troubleshooting](troubleshooting.md) · [Architecture](architecture.md) · [Android notes](android.md) · [Documentation index](index.md)
+Related: [Troubleshooting](troubleshooting.md) · [Architecture](architecture.md) · [Android](android.md) · [Windows hosts](windows.md) · [Documentation index](index.md)

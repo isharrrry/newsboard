@@ -12,13 +12,13 @@ Obtiene las noticias del día, deja que un modelo las filtre (resumen + importan
 - **Filtrado por modelo** — cada elemento lleva un resumen de 70 caracteres y una importancia de 0–1; lo que queda por debajo del umbral de importancia (0.7 por defecto) nunca entra en la lista de reproducción.
 - **Lectura en voz alta** — el TTS del sistema lee el resumen y el elemento termina cuando termina la lectura: la lectura *es* el reloj de ese elemento.
 
-1 conjunto de componentes Razor (`NewsBoard.Shared`) más 2 hosts:
+NewsBoard es un panel de noticias en letra grande **multiplataforma**: **1 conjunto de componentes Razor (`NewsBoard.Shared`, sin dependencias de plataforma) más varios hosts**. **Hoy se admiten Android y Windows**, con 3 hosts ejecutables:
 
-| Host | Plataforma de destino | Para qué sirve |
-|---|---|---|
-| `NewsBoard.Wpf` | Escritorio Windows (WPF + WebView2) | Todas las funciones; también la vía más rápida para depurar la capa Blazor |
-| `NewsBoard.Maui` | Android (`net10.0-android`) | Plataforma principal, genera el APK |
-| Cabecera Windows de `NewsBoard.Maui` | Escritorio Windows (`net10.0-windows10.0.19041.0`) | Ejecuta el código del host de Android en un PC |
+| Plataforma | Host | Pila / TFM | Estado |
+|---|---|---|---|
+| Android | `NewsBoard.Maui` | .NET MAUI + `BlazorWebView`, `net10.0-android` | Admitido; instalado y medido en un dispositivo real (Android 13 / arm64-v8a), genera el APK |
+| Windows | `NewsBoard.Wpf` | WPF + WebView2, `net10.0-windows10.0.19041.0` | Admitido; medido en esta máquina; `dotnet publish -c Release` genera 45 archivos / 28.14MB |
+| Windows | Cabecera Windows de `NewsBoard.Maui` | .NET MAUI + `BlazorWebView`, el mismo TFM | Admitido; se ejecuta sin empaquetar con `WindowsPackageType=None`, necesita Windows App Runtime (aquí 1.6 / 1.7 / 1.8) |
 
 ![NewsBoard ejecutándose en un teléfono Android](screenshots/01-board-android.png)
 
@@ -28,13 +28,19 @@ Obtiene las noticias del día, deja que un modelo las filtre (resumen + importan
 
 Requisitos: **.NET SDK 10** (medido aquí: 10.0.203 / runtime 10.0.7); en Windows también hace falta el **WebView2 Runtime** (medido aquí: 154.0.4258.62). La primera vez hay que pegar una API Key de DeepSeek en la página de Ajustes; sin ella fallan tanto la obtención como el resumen con modelo.
 
+**Windows**
+
 ```powershell
 # Host WPF (la forma más rápida de verlo funcionando)
 dotnet run --project src\NewsBoard.Wpf
 
 # Cabecera Windows de MAUI
 dotnet run --project src\NewsBoard.Maui -f net10.0-windows10.0.19041.0
+```
 
+**Android**
+
+```powershell
 # Compilar el APK de Android (salida: bin\Debug\net10.0-android\*-Signed.apk)
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force; . .\scripts\android-env.ps1
 dotnet build src\NewsBoard.Maui\NewsBoard.Maui.csproj -f net10.0-android -v q --nologo
@@ -42,7 +48,11 @@ dotnet build src\NewsBoard.Maui\NewsBoard.Maui.csproj -f net10.0-android -v q --
 # Compilar e instalar en un dispositivo conectado (las compilaciones de depuración deben usar este destino)
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force; . .\scripts\android-env.ps1
 dotnet build src\NewsBoard.Maui\NewsBoard.Maui.csproj -f net10.0-android -t:Install -v q --nologo
+```
 
+**Todas las plataformas**
+
+```powershell
 # Solución completa (WPF + MAUI/Android + MAUI/Windows)
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force; . .\scripts\android-env.ps1
 dotnet build NewsBoard.slnx -v q --nologo
@@ -52,6 +62,21 @@ dotnet test src\NewsBoard.Tests\NewsBoard.Tests.csproj --nologo
 ```
 
 > Las compilaciones de Android **deben** hacer `dot-source` de `scripts\android-env.ps1` primero; si no, aparece `XA5300 Android SDK not found` (la política de ejecución de esta máquina es Restricted, de ahí el permiso temporal solo para este proceso). Los requisitos completos de Android y los detalles de instalación están en [docs/android.es.md](docs/android.es.md).
+
+## Diferencias de capacidades por plataforma
+
+| Capacidad | Android | Windows (`NewsBoard.Wpf`) | Windows (cabecera Windows de `NewsBoard.Maui`) |
+|---|---|---|---|
+| Apagado / pantalla apagada | Brillo de ventana a 0 + una capa negra; **la retroiluminación física sigue encendida** | **Apaga de verdad el monitor** (`WM_SYSCOMMAND` / `SC_MONITORPOWER`, 2 = apagar / -1 = encender) | Igual que WPF; pero esta cabecera no hace pantalla completa sin bordes, así que la protección se degrada a «solo primer plano» |
+| Protección al apagar la pantalla | No aplica | Apaga el monitor solo cuando esta app está en primer plano **o** en pantalla completa sin bordes; **volver a encenderlo no tiene restricción** | Igual que a la izquierda, pero la condición de pantalla completa es siempre falsa |
+| Mantener pantalla encendida | Lo asume el indicador de ventana `KEEP_SCREEN_ON`, **no se retira ni durante el apagado** | Implementación vacía (en escritorio no hace falta) | Implementación vacía |
+| Pantalla completa | Inmersiva: oculta la barra de estado del sistema (`AndroidShowStatusBar`) | Pantalla completa sin bordes (F11 para entrar / Esc para salir; medido `1600x1000@(160,10)` → `1920x1080@(0,0)`) | No se hace (`SetFullscreenAsync` es una implementación vacía) |
+| Síntesis de voz | Motor TTS propio del dispositivo (medido `com.xiaomi.mibrain.speech`) | `System.Speech` (medido `Microsoft Huihui Desktop` zh-CN; `SpeakCompleted` es fiable) | `System.Speech` (igual que WPF) |
+| Inicio automático al arrancar | `BootReceiver` + servicio en primer plano + notificación permanente; los gestores de inicio automático del fabricante (p. ej. MIUI) pueden bloquearlo | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` | Igual que WPF |
+| Directorio de configuración / caché | Directorio privado de la app (paquete `com.newsboard.app`) | `%LOCALAPPDATA%\NewsBoard\` (`config.json` / `news.json`) | Igual que WPF, **totalmente compartido con WPF** |
+| API Key | MAUI `SecureStorage` (cifrado con Android Keystore, no es un archivo en texto plano) | `%APPDATA%\NewsBoard\secret.dat` (DPAPI CurrentUser + entropy `NewsBoard.SecretStore.v1`) | Igual que WPF (los 2 hosts comparten 1 sola clave) |
+| Abrir el artículo original | Navegador del sistema (Intent) | Navegador predeterminado | Navegador predeterminado |
+| Sustitución del directorio de datos | Variable de entorno `NEWSBOARD_DATA_DIR` (común a los 3 hosts) | Igual que a la izquierda | Igual que a la izquierda |
 
 ## Cómo se ve
 
@@ -122,6 +147,7 @@ Las reglas completas (deduplicación y enfriamiento de la IA, obtención del cue
 | [docs/news-pipeline.es.md](docs/news-pipeline.es.md) | Los 2 canales y el orden de respaldo, deduplicación y enfriamiento de la IA, obtención del cuerpo, resúmenes e importancia, imágenes |
 | [docs/playback.es.md](docs/playback.es.md) | Máquina de estados de reproducción, la lectura como reloj del elemento, los 5 botones y gestos, diferencias de apagado por plataforma, resultados de la prueba de larga duración |
 | [docs/android.es.md](docs/android.es.md) | Cadena de herramientas de Android, comandos de compilación e instalación, aceptación en dispositivo real, 3 hechos de la plataforma |
+| [docs/windows.es.md](docs/windows.es.md) | Hosts de Windows: el host WPF y la cabecera Windows de MAUI |
 | [docs/troubleshooting.es.md](docs/troubleshooting.es.md) | Síntoma → causa → solución, cada uno con un comando ejecutable |
 | [docs/contributing.es.md](docs/contributing.es.md) | Entorno y comandos, propiedad de archivos, convenciones de código, puerta previa al commit, disciplina de documentación |
 | [docs/android-env-report.md](docs/android-env-report.md) | Informe medido del entorno de la cadena de herramientas de Android (un solo idioma) |
@@ -147,12 +173,20 @@ Las convenciones, el contrato congelado y todos los hechos medidos (incluidas la
 
 ## Limitaciones conocidas
 
+**Android**
+
 - **Android está instalado y revisado punto por punto** (2026-10-08, Xiaomi `M2011K2C` / Redmi K40 / Android 13 / arm64-v8a): renderizado de arranque, 6 palabras clave que obtuvieron 16 elementos, etiqueta de palabra clave + reloj + resumen en letra grande + barra de control, configuración y caché en el directorio privado de la app; al pulsar «interrumpir» el brillo de la ventana llega a 0 y la pantalla se pone negra en 1.2 segundos, y al tocar la pantalla se restaura; `KEEP_SCREEN_ON` mantiene la pantalla encendida; el TTS chino realmente lee elemento a elemento (5 AudioTrack `CONTENT_TYPE_SPEECH` consecutivos en `dumpsys audio`, de 7.4–14.6 segundos cada uno, con unos 1 segundo entre elementos).
 - **El «apagado» de Android no es apagar la pantalla físicamente**: solo pone el **brillo de la ventana a 0 y pinta la pantalla de negro**; la retroiluminación sigue encendida. Una app normal de Android no tiene forma de apagar el panel sin permisos (`GoToSleep()` es un permiso de firma; `LockNow()` necesita administrador del dispositivo, bloquea la pantalla y luego exige desbloquear para despertar). Solo la versión de Windows apaga de verdad el monitor (`SC_MONITORPOWER`).
 - **El inicio automático al arrancar en Android necesita aprobación del fabricante**: la ruta del código es correcta (`BootReceiver` sí recibe `BOOT_COMPLETED`), pero en este dispositivo el gestor de inicio automático de MIUI lo bloquea (registro del sistema `process is not permitted to auto start`, `MIUIOP(10021): ignore`). **Para permitirlo a mano**: Ajustes → Aplicaciones → Gestionar aplicaciones → NewsBoard → **Inicio automático** (activado); conviene poner también la política de ahorro de batería en **sin restricciones**. Después de eso, al reiniciar aparece la notificación permanente (no usa `StartActivity`; toca la notificación para abrir el panel).
 - **La calidad del TTS en Android depende del motor de voz del propio teléfono** (aquí `com.xiaomi.mibrain.speech`); el timbre y la naturalidad los juzgas tú: la app solo le entrega el resumen.
-- **El canal de búsqueda web no devuelve el cuerpo del artículo, pero el cuerpo se obtiene igual**: ese canal toma el resumen directamente del modelo, pero la obtención del cuerpo se aplica por igual a los 2 canales (se dispara cuando `Description` tiene menos de 300 caracteres), así que `RawContent` puede ser no nulo en elementos del canal de búsqueda web. Medido en la caché de esta máquina: **313 elementos** (todos de búsqueda web), **92** de ellos con `RawContent` no nulo, de 109–2000 caracteres; los que fallaron siguen siendo null.
+
+**Windows**
+
 - **El apagado real de pantalla en Windows no está confirmado a mano**: la implementación usa `SC_MONITORPOWER` con una protección (solo apaga el monitor cuando esta app está en primer plano o en pantalla completa sin bordes, mientras que volver a encenderlo no tiene restricción), pero la automatización nunca provocó un cambio real de retroiluminación.
+
+**Independiente de la plataforma**
+
+- **El canal de búsqueda web no devuelve el cuerpo del artículo, pero el cuerpo se obtiene igual**: ese canal toma el resumen directamente del modelo, pero la obtención del cuerpo se aplica por igual a los 2 canales (se dispara cuando `Description` tiene menos de 300 caracteres), así que `RawContent` puede ser no nulo en elementos del canal de búsqueda web. Medido en la caché de esta máquina: **313 elementos** (todos de búsqueda web), **92** de ellos con `RawContent` no nulo, de 109–2000 caracteres; los que fallaron siguen siendo null.
 - **Cambiar el idioma del resumen no reescribe los resúmenes en caché** (ver «Cómo llegan las noticias» arriba).
 - El interruptor de filtro **«mostrar solo las noticias que coinciden con una palabra clave»** **no está implementado**; ahora mismo las palabras clave solo se usan como etiquetas de agrupación y para mostrar.
 

@@ -28,6 +28,8 @@ Windows 需要 WebView2 Runtime。Android 构建需要上面这套工具链，�
 
 ## 2. 构建与测试命令
 
+### 共享类库与测试
+
 ```powershell
 # 共享类库（所有纯逻辑与 UI 都在这）
 dotnet build src\NewsBoard.Shared\NewsBoard.Shared.csproj -v q --nologo
@@ -35,26 +37,36 @@ dotnet build src\NewsBoard.Shared\NewsBoard.Shared.csproj -v q --nologo
 # 单元测试
 dotnet test src\NewsBoard.Tests\NewsBoard.Tests.csproj --nologo
 
+# 全解决方案（WPF + MAUI/Android + MAUI/Windows）
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force; . .\scripts\android-env.ps1
+dotnet build NewsBoard.slnx -v q --nologo
+```
+
+### Windows 宿主
+
+```powershell
 # WPF 宿主（Windows 桌面；也是调试 Blazor 层最快的途径）
 dotnet run --project src\NewsBoard.Wpf
 
 # MAUI 的 Windows 头（非打包运行）
 dotnet build src\NewsBoard.Maui\NewsBoard.Maui.csproj -f net10.0-windows10.0.19041.0 -v q --nologo
 dotnet run --project src\NewsBoard.Maui -f net10.0-windows10.0.19041.0
+```
 
+### Android 宿主
+
+```powershell
 # Android APK（产出 bin\Debug\net10.0-android\*-Signed.apk）
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force; . .\scripts\android-env.ps1
 dotnet build src\NewsBoard.Maui\NewsBoard.Maui.csproj -f net10.0-android -v q --nologo
 
 # Android：构建 + 安装到已连接的设备 —— 调试包只能这样部署
 dotnet build src\NewsBoard.Maui\NewsBoard.Maui.csproj -f net10.0-android -t:Install -v q --nologo
-
-# 全解决方案（WPF + MAUI/Android + MAUI/Windows）
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force; . .\scripts\android-env.ps1
-dotnet build NewsBoard.slnx -v q --nologo
 ```
 
 任何 Android 构建之前都必须点源 `scripts\android-env.ps1`：不点源会报 `XA5300 找不到 Android SDK`。该脚本幂等，且只设置当前进程的环境变量 —— 绝不改动机器级 / 用户级环境变量。本机执行策略是 `Restricted`，所以要先放开当前进程。
+
+各平台的构建前置、运行形态与平台能力差异见 [Android](android.zh-CN.md) 与 [Windows 宿主](windows.zh-CN.md)。
 
 ---
 
@@ -130,20 +142,28 @@ dotnet test  src\NewsBoard.Tests\NewsBoard.Tests.csproj --nologo
 
 ## 8. 尚未验证清单
 
-照实写，不写成「应该可以」：
+照实写，不写成「应该可以」。按平台分开列。
 
-1. **Windows 真关屏没有人工确认过。** `SC_MONITORPOWER` 与 `MonitorPowerPolicy` 护栏都已实现，但没有任何一次自动化运行观察到真实的背光变化。
-2. **Android 开机自启一次都没成功过。** 链路正确，但 MIUI 会拦，需要用户手动授予自启动权限；在那之前系统日志以 `process is not permitted to auto start` 结束。
-3. **Android 长稳只测了 20 分钟**（无崩溃、无 ANR、内存在 295–302 MB 区间平台化），而方案里的验收口径是 2 小时。
-4. **Android 沉浸式全屏（状态栏隐藏）没有在真机上验证过。**
-5. **Release APK 从未装到设备上** —— 实际部署的都是 Debug 包（Debug 14.97 MB / Release 28.77 MB）。
-6. **Release trimming / AOT 未启用**，WPF 的发布产物也不是自包含、不是单文件。
-7. **切换摘要语言不会重写缓存里的旧摘要** —— 必须删掉 `news.json`，或等自然日保留期过期。
-8. **「只显示命中关键字的新闻」过滤开关不存在**；关键字目前只用作分组标签。
-9. **TTS 驱动的滚动调速**（念完那一刻正好滚到底）只有单测覆盖，没有做音频级验证。
-10. **「在设置页改完 → 杀进程 → 重启」这条往返**没有做自动化验证。
-11. **本机没有模拟器 / AVD。**
+### Android
+
+1. **开机自启一次都没成功过。** 链路正确，但 MIUI 会拦，需要用户手动授予自启动权限；在那之前系统日志以 `process is not permitted to auto start` 结束。
+2. **长稳只测了 20 分钟**（无崩溃、无 ANR、内存在 295–302 MB 区间平台化），而方案里的验收口径是 2 小时。
+3. **沉浸式全屏（状态栏隐藏）没有在真机上验证过。**
+4. **Release APK 从未装到设备上** —— 实际部署的都是 Debug 包（Debug 14.97 MB / Release 28.77 MB）。
+5. **本机没有模拟器 / AVD。**
+
+### Windows
+
+1. **真关屏没有人工确认过。** `SC_MONITORPOWER` 与 `MonitorPowerPolicy` 护栏都已实现，但没有任何一次自动化运行观察到真实的背光变化。
+2. **Release trimming / AOT 未启用**，WPF 的发布产物也不是自包含、不是单文件。
+
+### 与平台无关
+
+1. **切换摘要语言不会重写缓存里的旧摘要** —— 必须删掉 `news.json`，或等自然日保留期过期。
+2. **「只显示命中关键字的新闻」过滤开关不存在**；关键字目前只用作分组标签。
+3. **TTS 驱动的滚动调速**（念完那一刻正好滚到底）只有单测覆盖，没有做音频级验证。
+4. **「在设置页改完 → 杀进程 → 重启」这条往返**没有做自动化验证。
 
 ---
 
-相关：[故障排查](troubleshooting.zh-CN.md) · [架构](architecture.zh-CN.md) · [Android 笔记](android.zh-CN.md) · [文档索引](index.zh-CN.md)
+相关：[故障排查](troubleshooting.zh-CN.md) · [架构](architecture.zh-CN.md) · [Android](android.zh-CN.md) · [Windows 宿主](windows.zh-CN.md) · [文档索引](index.zh-CN.md)

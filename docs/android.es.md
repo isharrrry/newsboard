@@ -4,7 +4,9 @@
 
 > Parte de la documentación de NewsBoard — volver al [README](../README.es.md)
 
-El objetivo principal de NewsBoard es Android: un host MAUI (`src/NewsBoard.Maui`, framework de destino `net10.0-android`) que renderiza la misma interfaz Blazor que los hosts de Windows, en un teléfono que se queda sobre la mesa y lee las noticias en voz alta.
+Esta página es **una de las páginas de plataforma**; para la visión general multiplataforma, véanse el [README](../README.es.md) y [Arquitectura](architecture.es.md), y el lado de Windows en [Hosts de Windows](windows.es.md).
+
+El host de Android es `src/NewsBoard.Maui` (framework de destino `net10.0-android`), que renderiza la misma interfaz Blazor que los hosts de Windows, en un teléfono que se queda sobre la mesa y lee las noticias en voz alta. Es la única plataforma móvil medida hasta ahora en hardware real.
 
 ## Cadena de herramientas y requisitos
 

@@ -4,7 +4,7 @@
 
 > Part of the NewsBoard documentation — back to [README](../README.md)
 
-`PlaybackEngine` (in `src/NewsBoard.Shared/Services/PlaybackEngine.cs`) is a two-phase state machine: it plays the round's playlist inside a SHOW window, then goes to BLACKOUT, then starts the next round. It depends only on the `Abstractions` interfaces, and every timestamp comes from the injected `IClock` — which is what makes it drivable with a scaled clock in tests.
+`PlaybackEngine` (in `src/NewsBoard.Shared/Services/PlaybackEngine.cs`) is a two-phase state machine: it plays the round's playlist inside a SHOW window, then goes to BLACKOUT, then starts the next round. It depends only on the `Abstractions` interfaces, and every timestamp comes from the injected `IClock` — which is what makes it drivable with a scaled clock in tests. All three hosts share this one engine — `NewsBoard.Maui` on Android, `NewsBoard.Wpf` on Windows, and the Windows head of `NewsBoard.Maui` — so platform differences show up only where the sections below say so.
 
 ## State machine
 
@@ -32,7 +32,12 @@ With speech enabled, an item lasts exactly as long as it takes to read: switch t
 
 When speech is not usable — `SpeechEnabled` off, the host reports TTS unavailable, or the current time falls inside `QuietHours` — the item falls back to a fixed `ItemHoldSeconds` (12 s), and scrolling runs at `ScrollSpeedPxPerSecond` (60). With `TtsUnavailable = SkipItem`, an item that cannot be read takes no time at all and is skipped.
 
-Measured on Windows: `System.Speech` with `Microsoft Huihui Desktop` (zh-CN) read one summary in 6135 ms and `SpeakCompleted` fired on time; cancelling returned in 744 ms.
+The speech engine comes from the host; the three hosts use two implementations:
+
+| Platform | Speech engine | Measured |
+|---|---|---|
+| Android (`NewsBoard.Maui`) | the device's own TTS engine | measured on a Xiaomi device: `com.xiaomi.mibrain.speech` |
+| Windows (`NewsBoard.Wpf`, and the Windows head of `NewsBoard.Maui`) | `System.Speech` | `Microsoft Huihui Desktop` (zh-CN) read one summary in 6135 ms and `SpeakCompleted` fired on time; cancelling returned in 744 ms |
 
 ## First-frame gate
 
@@ -54,17 +59,22 @@ Five buttons sit in the bottom-right of the board page:
 
 During a blackout the control bar is hidden (`board-controls--hidden`) and the black overlay covers the screen, so a tap anywhere lands on the overlay and calls `WakeAsync()`: the blackout ends at once, the display comes back, and the window is recounted from the current item. Tapping during SHOW does nothing — it neither switches items nor shortens the window. Measured on Windows: brightness 58.4 → interrupt 0 → one tap 58.4.
 
-## Blackout differs per platform
+## Blackout and keep-screen-on: platform differences
 
-| Host | What a blackout does | Measured |
-|---|---|---|
-| WPF | really turns the monitor off: `SendMessageTimeout(HWND_BROADCAST, WM_SYSCOMMAND(0x0112), SC_MONITORPOWER(0xF170), 2 / -1, SMTO_ABORTIFHUNG, 1000)` (2 = off, −1 = on) | the monitor-off itself has not been confirmed by hand; see Known limitations |
-| MAUI (Windows) | the same Win32 broadcast; the guard degrades to “app window is foreground” because this host does not do borderless fullscreen | — |
-| MAUI (Android) | window brightness 0 plus a full-black overlay; **the backlight stays on** | brightness override `NaN` (no override) → `0.0`, screenshot 300,867 B → 27,787 B, within 1.2 s; tapping the screen brings it back to `NaN` and 300,867 B |
+| Capability | Android (`NewsBoard.Maui`) | Windows (`NewsBoard.Wpf`) | Windows (the Windows head of `NewsBoard.Maui`) |
+|---|---|---|---|
+| Blackout | window brightness 0 plus a full-black overlay; **the backlight stays on** | **really turns the monitor off**: `SendMessageTimeout(HWND_BROADCAST, WM_SYSCOMMAND(0x0112), SC_MONITORPOWER(0xF170), 2 / -1, SMTO_ABORTIFHUNG, 1000)` (2 = off, −1 = on) | the same Win32 broadcast |
+| Monitor-off guard | not applicable | the monitor is cut only when the app window is the foreground window **or** the window is borderless fullscreen (`MonitorPowerPolicy`) | the same, except that this host does no borderless fullscreen, so the guard degrades to “app window is foreground” |
+| Keep screen on | carried by the window flag `KEEP_SCREEN_ON`, which a blackout deliberately does not drop | empty implementation (no such need on the desktop) | empty implementation |
 
-`MonitorPowerPolicy` is the shared pure-logic guard: the monitor is cut only when the app window is the foreground window **or** the window is borderless fullscreen. If you switch to another program, the board keeps showing a black overlay instead of blacking out your screen. Turning the monitor back **on** is deliberately not gated — otherwise a board that blacked out and then lost focus could never bring the screen back.
+Measured evidence:
 
-On Android there is no permission-free way to really switch the panel off: `PowerManager.GoToSleep()` requires a signature permission, and `DevicePolicyManager.LockNow()` needs device-admin rights and locks the device, so waking would require an unlock. Android keep screen on is carried by the window flag `KEEP_SCREEN_ON`, which the engine deliberately leaves set during a blackout — dropping it would let the system's `screen_off_timeout` switch the panel off for real.
+- Android: brightness override `NaN` (no override) → `0.0`, screenshot 300,867 B → 27,787 B within 1.2 s; tapping the screen brings it back to `NaN` and 300,867 B.
+- Windows (`NewsBoard.Wpf`): the monitor-off itself has not been confirmed by hand; see Known limitations.
+
+`MonitorPowerPolicy` is the shared pure-logic guard (the rule in the “Monitor-off guard” row above): the monitor is cut only when the app window is the foreground window **or** the window is borderless fullscreen. If you switch to another program, the board keeps showing a black overlay instead of blacking out your screen. Turning the monitor back **on** is deliberately not gated — otherwise a board that blacked out and then lost focus could never bring the screen back.
+
+On Android there is no permission-free way to really switch the panel off: `PowerManager.GoToSleep()` requires a signature permission, and `DevicePolicyManager.LockNow()` needs device-admin rights and locks the device, so waking would require an unlock. Android keep screen on is carried by the window flag `KEEP_SCREEN_ON`, which the engine deliberately leaves set during a blackout — dropping it would let the system's `screen_off_timeout` (measured on this device: 600000 ms) switch the panel off for real.
 
 ## Measured long run
 

@@ -6,17 +6,19 @@
 
 ## Where the files live
 
-| Host | Configuration | News cache | API key |
-|---|---|---|---|
-| WPF | `%LOCALAPPDATA%\NewsBoard\config.json` | `%LOCALAPPDATA%\NewsBoard\news.json` | `%APPDATA%\NewsBoard\secret.dat` (DPAPI `CurrentUser` + entropy `NewsBoard.SecretStore.v1`; the file on disk is ciphertext) |
-| MAUI (Windows) | the same file as WPF — the two hosts share it completely | the same file | the same file (keys work in both hosts) |
-| MAUI (Android) | app-private directory (`LocalApplicationData`, package `com.newsboard.app`) | the same directory | MAUI `SecureStorage` (Android Keystore; not a plaintext file) |
+NewsBoard is cross-platform: one set of Razor components (`NewsBoard.Shared`, zero platform dependencies) runs under three hosts — Android (`NewsBoard.Maui`), `NewsBoard.Wpf`, and the Windows head of `NewsBoard.Maui`. Each host keeps its configuration, cache and API key in its own place:
 
-- **Change the data directory**: set the environment variable `NEWSBOARD_DATA_DIR` (any non-empty value wins). `ConfigStore` and `NewsRepository` share this single resolution point. Automated or probe scripts **must** point it at an isolated directory and never at the real one — a probe script once overwrote the user's 6 keywords with 2 (see `plans/news-board.plan.md` §13).
+| Platform / host | Configuration | News cache | API key |
+|---|---|---|---|
+| Android — `NewsBoard.Maui` | app-private directory (`LocalApplicationData`, package `com.newsboard.app`) | the same directory | MAUI `SecureStorage` (Android Keystore; not a plaintext file) |
+| Windows — `NewsBoard.Wpf` | `%LOCALAPPDATA%\NewsBoard\config.json` | `%LOCALAPPDATA%\NewsBoard\news.json` | `%APPDATA%\NewsBoard\secret.dat` (DPAPI `CurrentUser` + entropy `NewsBoard.SecretStore.v1`; the file on disk is ciphertext) |
+| Windows — `NewsBoard.Maui` (Windows head) | the same file as `NewsBoard.Wpf` — the two Windows hosts share it completely | the same file | the same file (the key works in both hosts) |
+
+- **Change the data directory**: set the environment variable `NEWSBOARD_DATA_DIR` (any non-empty value wins, and it applies to all three hosts). `ConfigStore` and `NewsRepository` share this single resolution point. Automated or probe scripts **must** point it at an isolated directory and never at the real one — a probe script once overwrote the user's 6 keywords with 2 (see `plans/news-board.plan.md` §13).
 - **Roll back a bad write**: before every overwrite, `ConfigStore` copies the previous version to `config.json.bak`.
 - **`ApiKey` never reaches the JSON**: the field carries `[JsonIgnore]` and is injected from the platform secret store under the name `ConfigStore.ApiKeySecretName` (`deepseek-api-key`).
-- **Getting the key into Android**: `secret.dat` is encrypted with DPAPI for the current Windows user and is machine-bound, so copying it to a phone achieves nothing. Paste the DeepSeek API key again on the device, in Settings → API / fetching.
-- **Auto-start on boot** (Windows) is written to `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
+- **Getting the key into each host**: the two Windows hosts share `%APPDATA%\NewsBoard\secret.dat` (DPAPI for the current user with the entropy above), so entering the key once serves both. That file is machine-bound and therefore useless on a phone: paste the DeepSeek API key again on the Android device itself, in Settings → API / fetching, where it goes to the Android Keystore.
+- **Auto-start on boot**: both Windows hosts write `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`; Android uses `BootReceiver` plus a foreground service with a resident notification, which a vendor auto-start manager (MIUI, for example) can still block — see [Android](android.md).
 
 ## Settings page
 
@@ -28,7 +30,7 @@
 | **API / fetching** | fetch mode, BaseUrl / Model / search endpoint and max_uses, API key, keyword list, items per keyword, fetch interval, summary length, summary language, AI minimum interval, RSS source and fallbacks, today-only, importance threshold, retention days |
 | **Appearance** | background / foreground / accent colours, body font size and weight, line height, padding, keyword label size, alignment, show clock, clock size and font, show keyword / title / source |
 | **Playback / speech** | speech on/off, spoken content, language, rate, pitch, lead silence, quiet hours, TTS-unavailable policy, show duration, item hold, scroll speed, blackout duration, blackout cycle, blackout mode, window-end behaviour, image position and screen share, play order, resume across rounds |
-| **System / host** | keep screen on, auto-start on boot, WiFi only fetching, Windows borderless fullscreen, Android show status bar |
+| **System / host** | keep screen on (Android), auto-start on boot (all three hosts), WiFi only fetching, Windows borderless fullscreen (WPF), Android show status bar |
 
 Bottom bar: **Save / Cancel / Restore defaults**. “Restore defaults” only resets the values being edited on this page — it does not clear a saved API key — and nothing takes effect until you press Save. The auto-start row reads the real platform state through `IAutoStart`, and the group also offers a “blackout for 2 seconds” self-test that does not touch the configuration.
 
@@ -109,11 +111,11 @@ Field names are the identifiers of `src/NewsBoard.Shared/Services/AppConfig.cs`,
 
 | Field | Default | Meaning |
 |---|---|---|
-| `KeepScreenOn` | `true` | takes effect on Android; the desktop hosts implement it as a no-op |
-| `AutoStart` | `true` | auto-start on boot; see `plans/news-board.plan.md` §3.4 |
+| `KeepScreenOn` | `true` | Android only: implemented with the `KEEP_SCREEN_ON` window flag, which is kept even while the screen is blacked out. Both Windows hosts implement it as a no-op |
+| `AutoStart` | `true` | auto-start on boot, on all three hosts: the Windows hosts write the `HKCU\…\Run` key, Android starts `BootReceiver` and the foreground service; see `plans/news-board.plan.md` §3.4 |
 | `WifiOnlyFetch` | `false` | off means fetching over mobile data is allowed |
-| `WindowsBorderlessFullscreen` | `false` | off means an ordinary window with a title bar; it can be turned on in Settings |
-| `AndroidShowStatusBar` | `true` | on means clock and battery stay visible; off means immersive fullscreen |
+| `WindowsBorderlessFullscreen` | `false` | off means an ordinary window with a title bar; it can be turned on in Settings. Takes effect in `NewsBoard.Wpf` (F11 to enter, Esc to leave); the Windows head of `NewsBoard.Maui` implements `SetFullscreenAsync` as a no-op, so the value has no effect there |
+| `AndroidShowStatusBar` | `true` | Android only: on means clock and battery stay visible; off means immersive fullscreen |
 
 ## Fields that are easy to get wrong
 

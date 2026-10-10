@@ -1,8 +1,9 @@
-# MauiNewsBoard — 安卓大字新闻看板 · 实施方案
+# MauiNewsBoard — 跨平台大字新闻看板 · 实施方案
 
-> 类型：实施计划（plan）。状态：**已 Approve，实施中（2026-10-08 开工，多子代理并行；逐项完成状态见 §8，后续迭代见 §11–§14）**。
-> 技术栈：Blazor（RCL）+ .NET MAUI Blazor Hybrid（Android）+ WPF + WebView2（Windows），三个 csproj。
-> 配套文档：`README.md`（怎么跑、配置与数据在哪）、`AGENTS.md`（开发约定 + 冻结契约 + 全部实测事实）、`docs/android-env-report.md`（Android 环境实测报告）。
+> 类型：实施计划（plan）。状态：**已 Approve，实施中（2026-10-08 开工，多子代理并行；逐项完成状态见 §8，后续迭代见 §11–§16）**。
+> 技术栈：Blazor（RCL）+ .NET MAUI Blazor Hybrid（Android）+ WPF + WebView2（Windows）+ .NET MAUI 的 Windows 头，三个 csproj。
+> 定位：**跨平台**，**当前已支持 Android 与 Windows 两个平台**（三个可运行宿主）。本文件是当初按「安卓看板」立项时的历史记录，其中不少平台表述是按**当时的范围**写的（例如标题、§0 的对比表）；跨平台口径以三语 `README.*` 与 `docs/` 为准。
+> 配套文档：三语 `README.*`（怎么跑、配置与数据在哪）、`AGENTS.md`（开发约定 + 冻结契约 + 全部实测事实）、三语 `docs/`（按主题的正式文档）、`docs/android-env-report.md`（Android 环境实测报告）。
 
 ---
 

@@ -6,17 +6,19 @@
 
 ## 文件在哪
 
-| 宿主 | 配置文件 | 新闻缓存 | API Key |
-|---|---|---|---|
-| WPF | `%LOCALAPPDATA%\NewsBoard\config.json` | `%LOCALAPPDATA%\NewsBoard\news.json` | `%APPDATA%\NewsBoard\secret.dat`（DPAPI `CurrentUser` + entropy `NewsBoard.SecretStore.v1`；磁盘上是密文） |
-| MAUI(Windows) | 与 WPF 同一个文件 —— 两个宿主完全共用 | 同一个文件 | 同一个文件（两端密钥互通） |
-| MAUI(Android) | app 私有目录（`LocalApplicationData`，包名 `com.newsboard.app`） | 同左 | MAUI `SecureStorage`（Android Keystore，不是明文文件） |
+NewsBoard 是**跨平台**的：**一套 Razor 组件**（`NewsBoard.Shared`，零平台依赖）跑在**三个宿主**之下 —— Android（`NewsBoard.Maui`）、`NewsBoard.Wpf`，以及 `NewsBoard.Maui` 的 Windows 头。各宿主把自己的配置、缓存与 API Key 放在各自的位置：
 
-- **改数据目录**：设置环境变量 `NEWSBOARD_DATA_DIR`（非空即生效）。`ConfigStore` 与 `NewsRepository` 共用这个唯一的解析点。自动化或探针脚本**必须**把它指向隔离目录、绝不指向真实目录 —— 有个探针脚本曾把用户的 6 个关键字覆盖成 2 个（见 `plans/news-board.plan.md` §13）。
+| 平台 / 宿主 | 配置文件 | 新闻缓存 | API Key |
+|---|---|---|---|
+| Android —— `NewsBoard.Maui` | app 私有目录（`LocalApplicationData`，包名 `com.newsboard.app`） | 同左 | MAUI `SecureStorage`（Android Keystore，不是明文文件） |
+| Windows —— `NewsBoard.Wpf` | `%LOCALAPPDATA%\NewsBoard\config.json` | `%LOCALAPPDATA%\NewsBoard\news.json` | `%APPDATA%\NewsBoard\secret.dat`（DPAPI `CurrentUser` + entropy `NewsBoard.SecretStore.v1`；磁盘上是密文） |
+| Windows —— `NewsBoard.Maui`（Windows 头） | 与 `NewsBoard.Wpf` 同一个文件 —— 两个 Windows 宿主完全共用 | 同一个文件 | 同一个文件（两端密钥互通） |
+
+- **改数据目录**：设置环境变量 `NEWSBOARD_DATA_DIR`（非空即生效，三个宿主通用）。`ConfigStore` 与 `NewsRepository` 共用这个唯一的解析点。自动化或探针脚本**必须**把它指向隔离目录、绝不指向真实目录 —— 有个探针脚本曾把用户的 6 个关键字覆盖成 2 个（见 `plans/news-board.plan.md` §13）。
 - **误改可回滚**：每次覆盖写盘前，`ConfigStore` 会把上一版留成 `config.json.bak`。
 - **`ApiKey` 永不进 JSON**：该字段带 `[JsonIgnore]`，由平台安全存储在 `ConfigStore.ApiKeySecretName`（`deepseek-api-key`）名下注入。
-- **Android 的 Key 怎么进去**：`secret.dat` 用 DPAPI 按当前 Windows 用户加密、绑机器，拷到手机没有用。换设备时在设备上的「设置 → API / 采集」里重新粘贴一次 DeepSeek API Key。
-- **开机自启**（Windows）写在 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`。
+- **Key 怎么进各宿主**：两个 Windows 宿主共用 `%APPDATA%\NewsBoard\secret.dat`（DPAPI 按当前用户加密 + 上面的 entropy），所以填一次两边都能用。该文件绑机器，拷到手机没有用 —— Android 上要在设备本身的「设置 → API / 采集」里重新粘贴一次 DeepSeek API Key，它会存进 Android Keystore。
+- **开机自启**：两个 Windows 宿主写 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`；Android 用 `BootReceiver` 加带常驻通知的前台服务，厂商自启动管理（如 MIUI）仍可能拦截 —— 见 [Android](android.zh-CN.md)。
 
 ## 设置页
 
@@ -28,7 +30,7 @@
 | **API / 采集** | 获取方式、BaseUrl / Model / 联网搜索端点与 max_uses、API Key、关键字列表、每关键字篇数、抓取间隔、摘要字数、摘要语言、AI 最小调用间隔、RSS 源与备用源、只用当天新闻、重要度门槛、保留天数 |
 | **外观** | 背景 / 前景 / 强调色、正文字号与字重、行距、内边距、关键字标签字号、对齐、显示时钟、时钟字号与字体、显示关键字 / 标题 / 来源 |
 | **播放 / 语音** | 语音播报开关、播报内容、语言、语速、音调、播报前静默、静音时段、TTS 不可用时策略、亮屏时长、单条基础停留、滚动速度、黑屏时长、亮熄循环、黑屏方式、窗口到点行为、图片位置与占屏比例、轮播顺序、跨轮续播 |
-| **系统 / 宿主** | 保持屏幕常亮、开机自启、仅 WiFi 抓取、Windows 无边框全屏、Android 显示系统状态栏 |
+| **系统 / 宿主** | 保持屏幕常亮（Android）、开机自启（三个宿主）、仅 WiFi 抓取、Windows 无边框全屏（WPF）、Android 显示系统状态栏 |
 
 底部操作条：**保存 / 取消 / 恢复默认**。「恢复默认」只重置本页正在编辑的值 —— 不会清除已保存的 API Key —— 且不点「保存」就不生效。开机自启那一行通过 `IAutoStart` 读平台真实状态；本组还有「黑屏 2 秒」自检按钮，自检不改配置。
 
@@ -109,11 +111,11 @@
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|
-| `KeepScreenOn` | `true` | Android 生效；桌面宿主实现为空操作 |
-| `AutoStart` | `true` | 开机自启；实现见 `plans/news-board.plan.md` §3.4 |
+| `KeepScreenOn` | `true` | 仅 Android 生效：用 `KEEP_SCREEN_ON` 窗口标志实现，黑屏期间也不撤。两个 Windows 宿主都实现为空操作 |
+| `AutoStart` | `true` | 开机自启，三个宿主都支持：Windows 宿主写 `HKCU\…\Run` 键，Android 起 `BootReceiver` 与前台服务；见 `plans/news-board.plan.md` §3.4 |
 | `WifiOnlyFetch` | `false` | 关 = 允许移动数据抓取 |
-| `WindowsBorderlessFullscreen` | `false` | 关 = 带标题栏的普通窗口；可在设置页打开 |
-| `AndroidShowStatusBar` | `true` | 开 = 时钟 / 电量可见；关 = 沉浸式全屏 |
+| `WindowsBorderlessFullscreen` | `false` | 关 = 带标题栏的普通窗口；可在设置页打开。在 `NewsBoard.Wpf` 生效（F11 进 / Esc 退）；`NewsBoard.Maui` 的 Windows 头把 `SetFullscreenAsync` 实现为空操作，所以该项在那里没有效果 |
+| `AndroidShowStatusBar` | `true` | 仅 Android 生效：开 = 时钟 / 电量可见；关 = 沉浸式全屏 |
 
 ## 几个容易弄错的字段
 

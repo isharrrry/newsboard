@@ -12,13 +12,13 @@ Fetch the day's news, have a model screen it (summary + importance), then rotate
 - **Model screening** — every item carries a 70-character summary and an importance of 0–1; anything below the importance threshold (0.7 by default) never enters the playlist.
 - **Speech** — the system TTS reads the summary aloud, and the item ends when the reading ends: the reading *is* that item's clock.
 
-1 set of Razor components (`NewsBoard.Shared`) plus 2 hosts:
+NewsBoard is a **cross-platform** large-type news board: **1 set of Razor components (`NewsBoard.Shared`, zero platform dependencies) plus several hosts**. **Android and Windows are both supported today**, across 3 runnable hosts:
 
-| Host | Target platform | Purpose |
-|---|---|---|
-| `NewsBoard.Wpf` | Windows desktop (WPF + WebView2) | Full feature set; also the fastest way to debug the Blazor layer |
-| `NewsBoard.Maui` | Android (`net10.0-android`) | Primary target platform, produces the APK |
-| Windows head of `NewsBoard.Maui` | Windows desktop (`net10.0-windows10.0.19041.0`) | Runs the Android host code on a PC |
+| Platform | Host | Stack / TFM | Status |
+|---|---|---|---|
+| Android | `NewsBoard.Maui` | .NET MAUI + `BlazorWebView`, `net10.0-android` | Supported; installed and measured on a real device (Android 13 / arm64-v8a), produces the APK |
+| Windows | `NewsBoard.Wpf` | WPF + WebView2, `net10.0-windows10.0.19041.0` | Supported; measured on this machine; `dotnet publish -c Release` produces 45 files / 28.14MB |
+| Windows | Windows head of `NewsBoard.Maui` | .NET MAUI + `BlazorWebView`, same TFM | Supported; runs unpackaged via `WindowsPackageType=None`, needs the Windows App Runtime (1.6 / 1.7 / 1.8 here) |
 
 ![NewsBoard running on an Android phone](screenshots/01-board-android.png)
 
@@ -28,13 +28,19 @@ Fetch the day's news, have a model screen it (summary + importance), then rotate
 
 Requirements: **.NET SDK 10** (measured here: 10.0.203 / runtime 10.0.7); on Windows you also need the **WebView2 Runtime** (measured here: 154.0.4258.62). On first use, paste a DeepSeek API Key on the Settings page — without it both fetching and summarization fail.
 
+**Windows**
+
 ```powershell
 # WPF host (the quickest way to see it working)
 dotnet run --project src\NewsBoard.Wpf
 
 # Windows head of MAUI
 dotnet run --project src\NewsBoard.Maui -f net10.0-windows10.0.19041.0
+```
 
+**Android**
+
+```powershell
 # Build the Android APK (output: bin\Debug\net10.0-android\*-Signed.apk)
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force; . .\scripts\android-env.ps1
 dotnet build src\NewsBoard.Maui\NewsBoard.Maui.csproj -f net10.0-android -v q --nologo
@@ -42,7 +48,11 @@ dotnet build src\NewsBoard.Maui\NewsBoard.Maui.csproj -f net10.0-android -v q --
 # Build and install to a connected device (debug builds must go through this target)
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force; . .\scripts\android-env.ps1
 dotnet build src\NewsBoard.Maui\NewsBoard.Maui.csproj -f net10.0-android -t:Install -v q --nologo
+```
 
+**All platforms**
+
+```powershell
 # Whole solution (WPF + MAUI/Android + MAUI/Windows)
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force; . .\scripts\android-env.ps1
 dotnet build NewsBoard.slnx -v q --nologo
@@ -52,6 +62,21 @@ dotnet test src\NewsBoard.Tests\NewsBoard.Tests.csproj --nologo
 ```
 
 > Android builds **must dot-source** `scripts\android-env.ps1` first, otherwise you get `XA5300 Android SDK not found` (this machine's execution policy is Restricted, hence the per-process bypass). Full Android prerequisites and install details are in [docs/android.md](docs/android.md).
+
+## Platform capability differences
+
+| Capability | Android | Windows (`NewsBoard.Wpf`) | Windows (`NewsBoard.Maui` Windows head) |
+|---|---|---|---|
+| Blackout / screen-off | Window brightness 0 + a black overlay; **the physical backlight stays on** | **Really switches the display off** (`WM_SYSCOMMAND` / `SC_MONITORPOWER`, 2 = off / -1 = on) | Same as WPF; but this head does no borderless fullscreen, so the guard degrades to "foreground only" |
+| Screen-off safety guard | Not applicable | Switches the display off only when this app is foreground **or** borderless-fullscreen; **switching it back on is unrestricted** | Same as left, but the fullscreen condition is always false |
+| Keep screen on | Carried by the `KEEP_SCREEN_ON` window flag, **not removed even during a blackout** | Empty implementation (no such need on desktop) | Empty implementation |
+| Fullscreen | Immersive: hides the system status bar (`AndroidShowStatusBar`) | Borderless fullscreen (F11 to enter / Esc to exit; measured `1600x1000@(160,10)` → `1920x1080@(0,0)`) | Not done (`SetFullscreenAsync` is an empty implementation) |
+| Speech synthesis | Device built-in TTS engine (measured `com.xiaomi.mibrain.speech`) | `System.Speech` (measured `Microsoft Huihui Desktop` zh-CN; `SpeakCompleted` is reliable) | `System.Speech` (same as WPF) |
+| Auto-start on boot | `BootReceiver` + foreground service + persistent notification; vendor autostart managers (e.g. MIUI) may block it | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` | Same as WPF |
+| Config / cache directory | App-private directory (package `com.newsboard.app`) | `%LOCALAPPDATA%\NewsBoard\` (`config.json` / `news.json`) | Same as WPF, **fully shared with WPF** |
+| API Key | MAUI `SecureStorage` (Android Keystore encrypted, not a plaintext file) | `%APPDATA%\NewsBoard\secret.dat` (DPAPI CurrentUser + entropy `NewsBoard.SecretStore.v1`) | Same as WPF (the 2 hosts share 1 key) |
+| Opening the original article | System browser (Intent) | Default browser | Default browser |
+| Data directory override | `NEWSBOARD_DATA_DIR` environment variable (common to all 3 hosts) | Same as left | Same as left |
 
 ## How it looks
 
@@ -122,6 +147,7 @@ Full rules (de-duplication and AI cooldown, article body fetching, summary lengt
 | [docs/news-pipeline.md](docs/news-pipeline.md) | The 2 channels and fallback order, de-duplication and AI cooldown, article body fetching, summaries and importance, images |
 | [docs/playback.md](docs/playback.md) | Playback state machine, reading as the item clock, the 5 buttons and gestures, platform differences in blackout, soak results |
 | [docs/android.md](docs/android.md) | Android toolchain, build and install commands, on-device acceptance, 3 platform facts |
+| [docs/windows.md](docs/windows.md) | Windows hosts: the WPF host and the MAUI Windows head |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Common symptom → cause → fix, each with a runnable command |
 | [docs/contributing.md](docs/contributing.md) | Environment and commands, file ownership, coding conventions, pre-commit gate, documentation discipline |
 | [docs/android-env-report.md](docs/android-env-report.md) | Measured Android toolchain environment report (single language) |
@@ -147,12 +173,20 @@ Conventions, the frozen contract and every measured fact (including the traps we
 
 ## Known limitations
 
+**Android**
+
 - **Android is installed and individually walked through** (2026-10-08, Xiaomi `M2011K2C` / Redmi K40 / Android 13 / arm64-v8a): startup rendering, 6 keywords fetching 16 items, keyword label + clock + large-type summary + control bar, config and cache landing in the app-private directory; tapping "interrupt" drives the window brightness to 0 and blacks the screen within 1.2 seconds, and tapping the screen restores it; `KEEP_SCREEN_ON` keeps the screen on; Chinese TTS really reads item by item (5 consecutive `CONTENT_TYPE_SPEECH` AudioTracks in `dumpsys audio`, 7.4–14.6 seconds each, about 1 second between items).
 - **The Android "blackout" is not a physical screen-off**: it only sets the **window brightness to 0 and paints the screen black** — the backlight stays on. A normal Android app has no permission-free way to switch the panel off (`GoToSleep()` is a signature permission; `LockNow()` needs device-admin rights, locks the screen, and then requires unlocking to wake). Only the Windows build really turns the display off (`SC_MONITORPOWER`).
 - **Auto-start on boot on Android needs vendor approval**: the code path is correct (`BootReceiver` really does receive `BOOT_COMPLETED`) but MIUI's autostart manager blocks it on this device (system log `process is not permitted to auto start`, `MIUIOP(10021): ignore`). **To allow it manually**: Settings → Apps → Manage apps → NewsBoard → **Autostart** (on); also set the battery saver policy to **no restrictions**. After that, a reboot brings up the persistent notification (it does not use `StartActivity`; tap the notification to open the board).
 - **TTS quality on Android depends on the phone's built-in speech engine** (here `com.xiaomi.mibrain.speech`); timbre and naturalness are yours to judge — the app only hands the summary to it.
-- **The web-search channel itself returns no article body, but the body still gets fetched**: that channel takes the summary straight from the model, yet article-body fetching applies to the 2 channels alike (it triggers when `Description` is under 300 characters), so `RawContent` on web-search items can be non-null. Measured on this machine's cache: **313 items** (all from web search), **92** of them with a non-null `RawContent`, 109–2000 characters long; items whose fetch failed stay null.
+
+**Windows**
+
 - **Real screen-off on Windows is not human-confirmed**: the implementation uses `SC_MONITORPOWER` with a guard (it only switches the display off when this app is foreground or borderless-fullscreen, while switching it back on is unrestricted), but automation never triggered an actual backlight change.
+
+**Platform-independent**
+
+- **The web-search channel itself returns no article body, but the body still gets fetched**: that channel takes the summary straight from the model, yet article-body fetching applies to the 2 channels alike (it triggers when `Description` is under 300 characters), so `RawContent` on web-search items can be non-null. Measured on this machine's cache: **313 items** (all from web search), **92** of them with a non-null `RawContent`, 109–2000 characters long; items whose fetch failed stay null.
 - **Switching the summary language does not rewrite cached summaries** (see "How the news gets in" above).
 - A filter switch for **"only show news that match a keyword"** is **not implemented**; keywords are currently used only as grouping labels and for display.
 

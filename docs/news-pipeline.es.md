@@ -4,7 +4,7 @@
 
 > Parte de la documentación de NewsBoard — volver al [README](../README.es.md)
 
-Esta página sigue a una noticia desde la fuente hasta el panel: obtención, deduplicación, extracción del cuerpo del artículo, resumen, puntuación de importancia, clasificación por palabra clave, imágenes, retención y qué ocurre cuando la lista de reproducción quedaría vacía.
+Esta página sigue a una noticia desde la fuente hasta el panel: obtención, deduplicación, extracción del cuerpo del artículo, resumen, puntuación de importancia, clasificación por palabra clave, imágenes, retención y qué ocurre cuando la lista de reproducción quedaría vacía. Todo lo que se describe aquí vive en `NewsBoard.Shared` (sin dependencias de plataforma), así que se comporta igual en los tres hosts: Android, `NewsBoard.Wpf` y la cabecera de Windows de `NewsBoard.Maui`.
 
 ## Dos canales
 

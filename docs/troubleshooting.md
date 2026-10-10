@@ -6,9 +6,15 @@
 
 Every entry below is written as **symptom → cause → fix**, and every fix is either a command you can run or a path you can open. Everything marked *measured* was observed on this repository's machine or on the test device, not inferred.
 
+Entries are grouped by platform: **General (any of the three hosts)** → **Android** → **Windows**. The entry numbers are the original ones, so cross-references such as “see entry 9” stay valid.
+
 ---
 
-## 1. Black screen with an empty `#app` (MAUI host page)
+## General (any of the three hosts)
+
+### 1. Black screen with an empty `#app` (MAUI host page)
+
+**Applies to** — MAUI hosts: `NewsBoard.Maui` on Android and its Windows head.
 
 **Symptom** — On the MAUI host the process is alive and the WebView fills the screen, but nothing is rendered: `#app.innerHTML.length === 0`. `logcat` / the console shows `Uncaught (in promise) Error: Blazor has already started.`
 
@@ -18,7 +24,7 @@ Every entry below is written as **symptom → cause → fix**, and every fix is 
 
 ---
 
-## 2. Stuck on the "fetching news" placeholder
+### 2. Stuck on the "fetching news" placeholder
 
 **Symptom** — The board page never leaves the placeholder `正在获取新闻…`; in the worst case the process shows no network connections at all.
 
@@ -38,7 +44,85 @@ Every entry below is written as **symptom → cause → fix**, and every fix is 
 
 ---
 
-## 3. Android: the Debug APK crashes right after `adb install`
+### 6. The same image appears on several items, or an item shows no image
+
+**Symptom** — Measured before the fix: 9 of 9 items had an image but 3 groups shared one template image (5 / 4 / 4 items). After the fix: 5 of 9 items have an image and there are no duplicate groups.
+
+**Cause** — Two separate problems. First, article pages from chinanews.com.cn and people.com.cn carry neither `og:image` nor `twitter:image` and their feeds carry no `enclosure` / `media:*`, so a meta-only resolver falls back to the same site template image. Second, nothing prevented one image URL from being assigned to several items.
+
+**Fix** — `ImageResolver` tries four levels — `og:image` → `twitter:image` → `link[rel=image_src]` → the first image inside the article body (preferring the article container, after a `<p>`, skipping logos, icons, placeholders and template assets more than 60 days older than the article date) — and validates every candidate with a Range request that must really return `image/*` (the chinanews image host is hotlink-protected and otherwise returns HTML). `ImageResolver.DedupeImages` plus `ApplyImagesAsync(..., reservedImageUrls)` keep one image on exactly one item; an item that cannot get an exclusive image is treated as "the article has no image" and shows none.
+
+---
+
+### 7. The keyword label shows a channel name instead of your keyword
+
+**Symptom** — The label at the top of the board page reads a channel name such as `中新网即时新闻` instead of one of your configured keywords.
+
+**Cause** — The default `RssTemplate` is a shared channel feed (it contains no `{q}`), so a single HTTP request returns the whole channel and items arrive tagged with the channel name. `KeywordClassifier.Classify` picks the first configured keyword found in the title, then in the body, and only falls back to the channel name when nothing matches. Measured: with `Keywords=武汉/AI` and the chinanews scroll feed, all 9 items that day were National Day / Japan / A-share stories containing neither keyword, and the model returned an empty `keyword` as well. **This is "no match", not "the classification was lost".**
+
+**Fix** — Nothing is broken. Add the words your feed actually uses, or choose a feed that matches your keywords. A "show only items that match a keyword" filter does not exist yet; a keyword is currently only a grouping label.
+
+---
+
+### 8. Summaries contain Traditional Chinese characters
+
+**Symptom** — Summaries returned by the web-search channel contain Traditional Chinese characters. Measured before the fix: 6 of 9 items had 1–3 Traditional characters.
+
+**Cause** — The prompt did not pin the output language, and that channel sometimes retrieves Hong Kong / Taiwan sources.
+
+**Fix** — `AppConfig.SummaryLanguage` (default `SimplifiedChinese`) is written into both prompts through `SummaryLanguageText.PromptRule()`. Measured after the fix: the same keywords produced 0 Traditional characters across 9 items. Note that switching the language does **not** rewrite cached summaries — delete `news.json` or wait for the calendar-day retention to expire.
+
+---
+
+### 9. The playlist is empty after threshold filtering
+
+**Symptom** — With a high `ImportanceThreshold` the board page keeps showing the fetching placeholder even though `news.json` contains items.
+
+**Cause** — `NewsRepository.GetPlaylist` filters by importance first and orders afterwards. If nothing passes, the list is empty. That is configuration semantics, not a hang.
+
+**Fix** — Lower `ImportanceThreshold` in the Settings page (default 0.7). The code also has a safety net: when the filtered list is empty it appends one random cached item (a copy, so the cache is not modified) and marks that summary with a trailing ` ~`. Measured with the threshold temporarily set to 0.95, the board displayed `…移送检察机关审查起诉。 ~`.
+
+---
+
+### 10. Time-sensitive tests fail intermittently
+
+**Symptom** — `Sa3PlaybackEngineTests` / `PlaybackControlTests` occasionally fail on a busy machine (measured before the fix: 3 of 4 full runs were red), for example `NextAsync_SkipsToFollowingItem`.
+
+**Cause** — Those tests drive a `ScaledClock` at 100× while `WaitUntilAsync` polls every 5 ms of real time, which is 0.5 s of engine time; a busy machine overshoots a checkpoint before the assertion reads it.
+
+**Fix** — Already fixed: a longer first summary (about 40 characters), checkpoints moved inside the window (59 s → 55 s, 365 s → 362 s), tolerance widened from 5 s to 20 s, and a `Task.Delay(250)` before taking the baseline. Measured after the fix: 5 consecutive full runs green at 220/220 each. If you add a new timing assertion, keep the same margins.
+
+---
+
+### 11. Your real data directory was overwritten by a script
+
+**Symptom** — Your keywords or other settings change after running an automated script. This really happened: 4 e2e scripts copied a test configuration over the user's real `config.json`, replacing 6 keywords with `武汉/AI`.
+
+**Cause** — The scripts wrote to the real data directory (`%LOCALAPPDATA%\NewsBoard`), and the `config-backup.json` they left behind was copied *after* the overwrite, so it had the same MD5 as the damaged file and could never roll anything back.
+
+**Fix** — Run any script that touches real fetching with an isolated directory:
+
+```powershell
+$env:NEWSBOARD_DATA_DIR = "D:\path\to\isolated-dir"
+```
+
+`NewsBoardDataDirectory.Resolve()` is the single resolution point shared by `ConfigStore` and `NewsRepository`, and a non-empty `NEWSBOARD_DATA_DIR` wins. `ConfigStore` additionally keeps the previous version as `config.json.bak` before every overwrite, so a bad write can be rolled back by restoring that file.
+
+---
+
+### 14. Every row on the Settings page is squeezed onto one line
+
+**Symptom** — After a CSS change, all Settings page rows collapse into a single line.
+
+**Cause** — The Settings page reused the class name `.card`, which in `app.css` is the board page's news card (`display:flex`).
+
+**Fix** — The Settings page group container must be `.settings-card` and must never use `class="card"`. Regression test: `Sa2SettingsPageTests.Settings_UsesGroupedCardLayout_AndCancelIsBackLink`. This was located by dumping the real HTML through `HtmlRenderer` and reading computed styles with Edge `--headless --dump-dom`.
+
+---
+
+## Android
+
+### 3. Android: the Debug APK crashes right after `adb install`
 
 **Symptom** — `adb install` of the Debug `*-Signed.apk` succeeds, but the app aborts on launch:
 
@@ -60,7 +144,7 @@ dotnet build src\NewsBoard.Maui\NewsBoard.Maui.csproj -f net10.0-android -t:Inst
 
 ---
 
-## 4. Android: auto-start on boot does nothing (MIUI)
+### 4. Android: auto-start on boot does nothing (MIUI)
 
 **Symptom** — After a reboot the app is not running: `adb shell pidof com.newsboard.app` is empty, there is no resident notification, and `dumpsys activity services com.newsboard.app` shows nothing.
 
@@ -77,83 +161,19 @@ W BroadcastQueueInjector: Unable to launch app com.newsboard.app/10244 for broad
 
 ---
 
-## 5. Android: the blackout phase does not switch the panel off
+### 5. Android: the blackout phase does not switch the panel off
 
 **Symptom** — During blackout the screen is black, but the backlight is plainly still on.
 
 **Cause** — By design, not a defect. `AndroidScreenController.SetBlackoutAsync(true)` sets the window brightness to `0f` and paints a full-screen black overlay; the physical backlight stays on. Android has no permission-free way for an ordinary app to switch the panel off: `PowerManager.GoToSleep()` needs the signature-level `DEVICE_POWER` permission, and `DevicePolicyManager.LockNow()` needs device-admin rights and also locks the device, so waking would require unlocking. Measured: `mScreenBrightnessOverrideFromWindowManager` goes `NaN` → `0.0` and the screenshot shrinks from 300,867 bytes to 27,787 bytes.
 
-**Fix** — Nothing to fix; treat it as a known limitation. Keep screen on is held by the window flag `KEEP_SCREEN_ON`, which the blackout phase deliberately does not drop — dropping it would let the system switch the panel off after `screen_off_timeout` (measured on this device: 600000 ms). Windows hosts do switch the monitor off, via `SC_MONITORPOWER`.
+**Fix** — Nothing to fix; treat it as a known limitation. Keep screen on is held by the window flag `KEEP_SCREEN_ON`, which the blackout phase deliberately does not drop — dropping it would let the system switch the panel off after `screen_off_timeout` (measured on this device: 600000 ms). Both Windows hosts do switch the monitor off, via `SC_MONITORPOWER`.
 
 ---
 
-## 6. The same image appears on several items, or an item shows no image
+## Windows
 
-**Symptom** — Measured before the fix: 9 of 9 items had an image but 3 groups shared one template image (5 / 4 / 4 items). After the fix: 5 of 9 items have an image and there are no duplicate groups.
-
-**Cause** — Two separate problems. First, article pages from chinanews.com.cn and people.com.cn carry neither `og:image` nor `twitter:image` and their feeds carry no `enclosure` / `media:*`, so a meta-only resolver falls back to the same site template image. Second, nothing prevented one image URL from being assigned to several items.
-
-**Fix** — `ImageResolver` tries four levels — `og:image` → `twitter:image` → `link[rel=image_src]` → the first image inside the article body (preferring the article container, after a `<p>`, skipping logos, icons, placeholders and template assets more than 60 days older than the article date) — and validates every candidate with a Range request that must really return `image/*` (the chinanews image host is hotlink-protected and otherwise returns HTML). `ImageResolver.DedupeImages` plus `ApplyImagesAsync(..., reservedImageUrls)` keep one image on exactly one item; an item that cannot get an exclusive image is treated as "the article has no image" and shows none.
-
----
-
-## 7. The keyword label shows a channel name instead of your keyword
-
-**Symptom** — The label at the top of the board page reads a channel name such as `中新网即时新闻` instead of one of your configured keywords.
-
-**Cause** — The default `RssTemplate` is a shared channel feed (it contains no `{q}`), so a single HTTP request returns the whole channel and items arrive tagged with the channel name. `KeywordClassifier.Classify` picks the first configured keyword found in the title, then in the body, and only falls back to the channel name when nothing matches. Measured: with `Keywords=武汉/AI` and the chinanews scroll feed, all 9 items that day were National Day / Japan / A-share stories containing neither keyword, and the model returned an empty `keyword` as well. **This is "no match", not "the classification was lost".**
-
-**Fix** — Nothing is broken. Add the words your feed actually uses, or choose a feed that matches your keywords. A "show only items that match a keyword" filter does not exist yet; a keyword is currently only a grouping label.
-
----
-
-## 8. Summaries contain Traditional Chinese characters
-
-**Symptom** — Summaries returned by the web-search channel contain Traditional Chinese characters. Measured before the fix: 6 of 9 items had 1–3 Traditional characters.
-
-**Cause** — The prompt did not pin the output language, and that channel sometimes retrieves Hong Kong / Taiwan sources.
-
-**Fix** — `AppConfig.SummaryLanguage` (default `SimplifiedChinese`) is written into both prompts through `SummaryLanguageText.PromptRule()`. Measured after the fix: the same keywords produced 0 Traditional characters across 9 items. Note that switching the language does **not** rewrite cached summaries — delete `news.json` or wait for the calendar-day retention to expire.
-
----
-
-## 9. The playlist is empty after threshold filtering
-
-**Symptom** — With a high `ImportanceThreshold` the board page keeps showing the fetching placeholder even though `news.json` contains items.
-
-**Cause** — `NewsRepository.GetPlaylist` filters by importance first and orders afterwards. If nothing passes, the list is empty. That is configuration semantics, not a hang.
-
-**Fix** — Lower `ImportanceThreshold` in the Settings page (default 0.7). The code also has a safety net: when the filtered list is empty it appends one random cached item (a copy, so the cache is not modified) and marks that summary with a trailing ` ~`. Measured with the threshold temporarily set to 0.95, the board displayed `…移送检察机关审查起诉。 ~`.
-
----
-
-## 10. Time-sensitive tests fail intermittently
-
-**Symptom** — `Sa3PlaybackEngineTests` / `PlaybackControlTests` occasionally fail on a busy machine (measured before the fix: 3 of 4 full runs were red), for example `NextAsync_SkipsToFollowingItem`.
-
-**Cause** — Those tests drive a `ScaledClock` at 100× while `WaitUntilAsync` polls every 5 ms of real time, which is 0.5 s of engine time; a busy machine overshoots a checkpoint before the assertion reads it.
-
-**Fix** — Already fixed: a longer first summary (about 40 characters), checkpoints moved inside the window (59 s → 55 s, 365 s → 362 s), tolerance widened from 5 s to 20 s, and a `Task.Delay(250)` before taking the baseline. Measured after the fix: 5 consecutive full runs green at 220/220 each. If you add a new timing assertion, keep the same margins.
-
----
-
-## 11. Your real data directory was overwritten by a script
-
-**Symptom** — Your keywords or other settings change after running an automated script. This really happened: 4 e2e scripts copied a test configuration over the user's real `config.json`, replacing 6 keywords with `武汉/AI`.
-
-**Cause** — The scripts wrote to the real data directory (`%LOCALAPPDATA%\NewsBoard`), and the `config-backup.json` they left behind was copied *after* the overwrite, so it had the same MD5 as the damaged file and could never roll anything back.
-
-**Fix** — Run any script that touches real fetching with an isolated directory:
-
-```powershell
-$env:NEWSBOARD_DATA_DIR = "D:\path\to\isolated-dir"
-```
-
-`NewsBoardDataDirectory.Resolve()` is the single resolution point shared by `ConfigStore` and `NewsRepository`, and a non-empty `NEWSBOARD_DATA_DIR` wins. `ConfigStore` additionally keeps the previous version as `config.json.bak` before every overwrite, so a bad write can be rolled back by restoring that file.
-
----
-
-## 12. MAUI on Windows starts with a black window and exits
+### 12. MAUI on Windows starts with a black window and exits
 
 **Symptom** — After killing WebView2 processes globally, every MAUI Windows launch is a black window that exits by itself.
 
@@ -169,7 +189,7 @@ When cleaning up, kill the app process itself instead of every `msedgewebview2` 
 
 ---
 
-## 13. A `.ps1` script with Chinese text fails to parse
+### 13. A `.ps1` script with Chinese text fails to parse
 
 **Symptom** — A verification script containing Chinese characters fails to parse, with strings cut in half.
 
@@ -185,17 +205,7 @@ The same trap applies to source files: never round-trip a `.cs` file through `Ge
 
 ---
 
-## 14. Every row on the Settings page is squeezed onto one line
-
-**Symptom** — After a CSS change, all Settings page rows collapse into a single line.
-
-**Cause** — The Settings page reused the class name `.card`, which in `app.css` is the board page's news card (`display:flex`).
-
-**Fix** — The Settings page group container must be `.settings-card` and must never use `class="card"`. Regression test: `Sa2SettingsPageTests.Settings_UsesGroupedCardLayout_AndCancelIsBackLink`. This was located by dumping the real HTML through `HtmlRenderer` and reading computed styles with Edge `--headless --dump-dom`.
-
----
-
-## 15. WPF host crashes on startup: `Microsoft.Windows.SDK.NET`
+### 15. WPF host crashes on startup: `Microsoft.Windows.SDK.NET`
 
 **Symptom** — The WPF host dies immediately with `FileNotFoundException: Microsoft.Windows.SDK.NET`.
 

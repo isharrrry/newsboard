@@ -4,7 +4,7 @@
 
 > Part of the NewsBoard documentation — back to [README](../README.md)
 
-This page follows one news item from a source to the board: fetching, deduplication, article-body extraction, summarization, importance scoring, keyword classification, images, retention, and what happens when the playlist would be empty.
+This page follows one news item from a source to the board: fetching, deduplication, article-body extraction, summarization, importance scoring, keyword classification, images, retention, and what happens when the playlist would be empty. Everything described here lives in `NewsBoard.Shared` (zero platform dependencies) and therefore behaves identically on all three hosts — Android, `NewsBoard.Wpf` and the Windows head of `NewsBoard.Maui`.
 
 ## Two channels
 

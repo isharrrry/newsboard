@@ -4,7 +4,7 @@
 
 > Parte de la documentación de NewsBoard — volver al [README](../README.es.md)
 
-`PlaybackEngine` (en `src/NewsBoard.Shared/Services/PlaybackEngine.cs`) es una máquina de estados de dos fases: reproduce la lista de la ronda dentro de una ventana SHOW, luego pasa a BLACKOUT y después empieza la ronda siguiente. Depende solo de las interfaces de `Abstractions`, y cada marca de tiempo viene del `IClock` inyectado, que es lo que permite dirigirlo con un reloj escalado en las pruebas.
+`PlaybackEngine` (en `src/NewsBoard.Shared/Services/PlaybackEngine.cs`) es una máquina de estados de dos fases: reproduce la lista de la ronda dentro de una ventana SHOW, luego pasa a BLACKOUT y después empieza la ronda siguiente. Depende solo de las interfaces de `Abstractions`, y cada marca de tiempo viene del `IClock` inyectado, que es lo que permite dirigirlo con un reloj escalado en las pruebas. Los tres hosts comparten este único motor — `NewsBoard.Maui` en Android, `NewsBoard.Wpf` en Windows y el encabezado Windows de `NewsBoard.Maui` —, así que las diferencias de plataforma aparecen solo donde lo indican las secciones siguientes.
 
 ## Máquina de estados
 
@@ -32,7 +32,12 @@ Con la lectura activada, un elemento dura exactamente lo que tarda en leerse: ca
 
 Cuando la lectura no está disponible — `SpeechEnabled` desactivado, el host informa de que el TTS no está disponible, o la hora actual cae dentro de `QuietHours` — el elemento recurre a una permanencia fija de `ItemHoldSeconds` (12 s) y el desplazamiento va a `ScrollSpeedPxPerSecond` (60). Con `TtsUnavailable = SkipItem`, un elemento que no se puede leer no consume tiempo y se salta.
 
-Medido en Windows: `System.Speech` con `Microsoft Huihui Desktop` (zh-CN) leyó un resumen en 6135 ms y `SpeakCompleted` se disparó a tiempo; cancelar tardó 744 ms.
+El motor de voz lo aporta el host; los tres hosts usan dos implementaciones:
+
+| Plataforma | Motor de voz | Medido |
+|---|---|---|
+| Android (`NewsBoard.Maui`) | el motor TTS propio del dispositivo | medido en un dispositivo Xiaomi: `com.xiaomi.mibrain.speech` |
+| Windows (`NewsBoard.Wpf`, y el encabezado Windows de `NewsBoard.Maui`) | `System.Speech` | `Microsoft Huihui Desktop` (zh-CN) leyó un resumen en 6135 ms y `SpeakCompleted` se disparó a tiempo; cancelar tardó 744 ms |
 
 ## Puerta del primer fotograma
 
@@ -54,17 +59,22 @@ Hay cinco botones en la esquina inferior derecha de la página del panel:
 
 Durante el apagado, la barra de controles está oculta (`board-controls--hidden`) y la capa negra cubre la pantalla, así que un toque en cualquier punto cae sobre la capa y llama a `WakeAsync()`: el apagado termina de inmediato, la imagen vuelve y la ventana se recuenta desde el elemento actual. Tocar durante SHOW no hace nada: ni cambia de elemento ni acorta la ventana. Medido en Windows: brillo 58,4 → interrupción 0 → un toque 58,4.
 
-## El apagado (blackout) cambia según la plataforma
+## Apagado y pantalla encendida: diferencias entre plataformas
 
-| Host | Qué hace el apagado | Medido |
-|---|---|---|
-| WPF | apaga de verdad el monitor: `SendMessageTimeout(HWND_BROADCAST, WM_SYSCOMMAND(0x0112), SC_MONITORPOWER(0xF170), 2 / -1, SMTO_ABORTIFHUNG, 1000)` (2 = apagar, −1 = encender) | el apagado en sí no se ha confirmado a mano; ver Limitaciones conocidas |
-| MAUI (Windows) | el mismo mensaje Win32; la protección se degrada a «la ventana de la app está en primer plano» porque este host no hace pantalla completa sin bordes | — |
-| MAUI (Android) | brillo de ventana 0 más una capa totalmente negra; **la retroiluminación sigue encendida** | anulación de brillo `NaN` (sin anulación) → `0.0`, captura 300 867 B → 27 787 B, en 1,2 s; al tocar la pantalla vuelve a `NaN` y 300 867 B |
+| Capacidad | Android (`NewsBoard.Maui`) | Windows (`NewsBoard.Wpf`) | Windows (el encabezado Windows de `NewsBoard.Maui`) |
+|---|---|---|---|
+| Apagado (blackout) | brillo de ventana 0 más una capa totalmente negra; **la retroiluminación sigue encendida** | **apaga de verdad el monitor**: `SendMessageTimeout(HWND_BROADCAST, WM_SYSCOMMAND(0x0112), SC_MONITORPOWER(0xF170), 2 / -1, SMTO_ABORTIFHUNG, 1000)` (2 = apagar, −1 = encender) | el mismo mensaje Win32 |
+| Protección del apagado | no aplica | el monitor solo se apaga cuando la ventana de la app es la ventana en primer plano **o** la ventana está en pantalla completa sin bordes (`MonitorPowerPolicy`) | lo mismo, salvo que este host no hace pantalla completa sin bordes, así que la protección se degrada a «la ventana de la app está en primer plano» |
+| Mantener pantalla encendida | lo lleva el indicador de ventana `KEEP_SCREEN_ON`, que el apagado no retira a propósito | implementación vacía (en el escritorio no hace falta) | implementación vacía |
 
-`MonitorPowerPolicy` es la protección compartida de lógica pura: el monitor solo se apaga cuando la ventana de la app es la ventana en primer plano **o** la ventana está en pantalla completa sin bordes. Si te cambias a otro programa, el panel sigue mostrando una capa negra en lugar de apagarte la pantalla. Volver a **encender** el monitor no está limitado a propósito: si no, un panel que se apagó y luego perdió el foco nunca podría recuperar la pantalla.
+Evidencia medida:
 
-En Android no hay forma de apagar realmente el panel sin permisos: `PowerManager.GoToSleep()` exige un permiso de firma, y `DevicePolicyManager.LockNow()` necesita permisos de administrador de dispositivos y bloquea el dispositivo, así que habría que desbloquearlo para despertarlo. En Android, mantener la pantalla encendida lo lleva el indicador de ventana `KEEP_SCREEN_ON`, que el motor deja puesto a propósito durante el apagado: quitarlo dejaría que el `screen_off_timeout` del sistema apagara el panel de verdad.
+- Android: anulación de brillo `NaN` (sin anulación) → `0.0`, captura 300 867 B → 27 787 B en 1,2 s; al tocar la pantalla vuelve a `NaN` y 300 867 B.
+- Windows (`NewsBoard.Wpf`): el apagado en sí no se ha confirmado a mano; ver Limitaciones conocidas.
+
+`MonitorPowerPolicy` es la protección compartida de lógica pura (la regla de la fila «Protección del apagado» de la tabla anterior): el monitor solo se apaga cuando la ventana de la app es la ventana en primer plano **o** la ventana está en pantalla completa sin bordes. Si te cambias a otro programa, el panel sigue mostrando una capa negra en lugar de apagarte la pantalla. Volver a **encender** el monitor no está limitado a propósito: si no, un panel que se apagó y luego perdió el foco nunca podría recuperar la pantalla.
+
+En Android no hay forma de apagar realmente el panel sin permisos: `PowerManager.GoToSleep()` exige un permiso de firma, y `DevicePolicyManager.LockNow()` necesita permisos de administrador de dispositivos y bloquea el dispositivo, así que habría que desbloquearlo para despertarlo. En Android, mantener la pantalla encendida lo lleva el indicador de ventana `KEEP_SCREEN_ON`, que el motor deja puesto a propósito durante el apagado: quitarlo dejaría que el `screen_off_timeout` del sistema (medido en este dispositivo: 600000 ms) apagara el panel de verdad.
 
 ## Prueba prolongada medida
 

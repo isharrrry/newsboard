@@ -4,13 +4,25 @@
 
 > NewsBoard 文档的一部分 —— 返回 [README](../README.zh-CN.md)
 
+## 一套组件，三个宿主
+
+NewsBoard 是一个**跨平台**的大字新闻看板：**一套 Razor 组件（`NewsBoard.Shared`，零平台依赖）+ 多个宿主**。**当前已支持 Android 与 Windows 两个平台，共三个可运行的宿主**，三者是并列关系。
+
+| 平台 | 宿主 | 技术栈 / TFM | 状态 |
+|---|---|---|---|
+| Android | `NewsBoard.Maui` | .NET MAUI + `BlazorWebView`，`net10.0-android` | 已支持；真机（Android 13 / arm64-v8a）装机实测通过，也是产出 APK 的项目 |
+| Windows | `NewsBoard.Wpf` | WPF + WebView2，`net10.0-windows10.0.19041.0` | 已支持；本机实测运行，`dotnet publish -c Release` 产出 45 文件 / 28.14MB |
+| Windows | `NewsBoard.Maui` 的 Windows 头 | .NET MAUI + `BlazorWebView`，同一 TFM | 已支持；以 `WindowsPackageType=None` 非打包运行，需 Windows App Runtime（本机 1.6 / 1.7 / 1.8） |
+
+只有一件事让 Android 与众不同：它是当前唯一做过真机装机验证的平台。
+
 ## 三个项目
 
 | 项目 | 目标框架 | 是什么 |
 |---|---|---|
 | `NewsBoard.Shared` | `net10.0` | Razor 类库（RCL）：**全部** UI 组件、`wwwroot`（css/js）、配置模型、抓取、提炼、播放引擎与平台抽象接口。**零平台依赖。** |
-| `NewsBoard.Maui` | `net10.0-android`；`net10.0-windows10.0.19041.0` | Android 宿主（MAUI Blazor Hybrid），也是产出 APK 的项目。保留 Windows 目标框架是为了能在 PC 上调试同一套 Blazor 层。提供 Android 与 Windows 两套平台实现。 |
-| `NewsBoard.Wpf` | `net10.0-windows10.0.19041.0` | Windows 桌面宿主：WPF + `Microsoft.AspNetCore.Components.WebView.Wpf`（基于 WebView2），承载同一套 Razor 组件。提供 Windows 平台实现。 |
+| `NewsBoard.Maui` | `net10.0-android`；`net10.0-windows10.0.19041.0` | 一个项目里装着两个宿主：**Android 宿主**（MAUI Blazor Hybrid，也是产出 APK 的项目）与 **MAUI 的 Windows 头**（把同一套 Blazor 层当非打包桌面应用跑）。提供 Android 与 Windows 两套平台实现。 |
+| `NewsBoard.Wpf` | `net10.0-windows10.0.19041.0` | **Windows 桌面宿主**：WPF + `Microsoft.AspNetCore.Components.WebView.Wpf`（基于 WebView2），承载同一套 Razor 组件。提供 Windows 平台实现。 |
 
 依赖方向单一：`Maui → Shared`、`Wpf → Shared`。**Shared 永远不反向依赖宿主。**
 
@@ -19,7 +31,7 @@
 为什么这样分：
 
 - **平台能力全在宿主项目里。** 屏幕控制、TTS、密钥存储、开机自启、打开链接都通过 Shared 定义的接口注入；Shared 里既没有 `#if ANDROID` 也没有 `#if WINDOWS`。
-- **Shared 只有纯 .NET 逻辑** —— 抓取、提炼、去重、缓存、播放状态机，以及全部 Razor 组件。一份代码供三个头共用，而且能在 PC 上用 WPF 宿主快速调试 Blazor 层。
+- **Shared 只有纯 .NET 逻辑** —— 抓取、提炼、去重、缓存、播放状态机，以及全部 Razor 组件。一份代码供三个头共用，同一块看板因此既跑在 Android 上也跑在 Windows 上，而且能在 PC 上用 WPF 宿主快速调试 Blazor 层。
 - **Blazor 只管渲染。** 组件接收 `NewsItem` 加显示选项，输出 HTML/CSS。
 
 ## 目录树
@@ -124,7 +136,7 @@ NewsBoard/
 
 ## 一次「启动 → 抓取 → 播放」的数据流
 
-1. **宿主启动。** WPF 宿主在 `App.xaml.cs` 里注册自己的平台实现；MAUI 宿主在 `MauiProgram.cs` 里按目标框架注册 Android 或 Windows 那一套。两者随后都调用 `AddNewsBoardCore()`。`MainWindow`（WPF）与 `MainPage`（MAUI）承载 `BlazorWebView`，其根组件是 `Components/Routes.razor`。
+1. **宿主启动。** 每个宿主各自注册平台实现：WPF 宿主在 `App.xaml.cs` 里，MAUI 宿主在 `MauiProgram.cs` 里（按目标框架选 Android 或 Windows 那一套）。三者随后都调用 `AddNewsBoardCore()`。`MainWindow`（WPF）与 `MainPage`（MAUI，两个头）承载 `BlazorWebView`，其根组件是 `Components/Routes.razor`。
 2. **装配。** `AddNewsBoardCore()` 注册一个 `Timeout.InfiniteTimeSpan` 的 `HttpClient` —— 三个联网实现各自计时（15 秒 / 90 秒 / 3 秒），`HttpClient` 的超时会把它们提前切断。同时注册 `IClock → SystemClock`、`NewsRepository`（暴露为 `INewsRepository`）、`ConfigStore`（暴露为 `IConfigProvider`）、`NewsSummarizer`、`ImageResolver`、`ArticleContentFetcher`、两个 `INewsSource` 实现、`NewsFetchCoordinator`、`NewsFetchScheduler` 与 `PlaybackEngine`。
 3. **初始化。** `InitializeNewsBoardAsync()` 加载 `config.json`（其中的 API Key 从 `ISecretStore` 取回）、加载 `news.json`，然后启动 `NewsFetchScheduler` —— 立刻抓一次，之后按「抓取间隔」（默认 5 分钟）循环。**如果这次调用没有被 await，播放列表会一直为空，画面永远停在「正在获取新闻…」。**
 4. **抓取。** 调度器 → `NewsFetchCoordinator` → `INewsSource`（RSS 频道源，或模型联网搜索通道；「自动」先走联网搜索、失败回退 RSS）→ URL 去重 → 正文补抓 → `NewsSummarizer`（摘要 + 重要度 + 关键字）→ `ImageResolver`（仅图文模式）→ `NewsRepository` 缓存。
@@ -133,18 +145,35 @@ NewsBoard/
 
 ## 平台能力如何注入
 
-`NewsBoard.Shared.Services.Abstractions` 定义接口；每个宿主在调用 `AddNewsBoardCore()` **之前**把自己的实现注册进依赖注入。
+`NewsBoard.Shared.Services.Abstractions` 定义接口；每个宿主在调用 `AddNewsBoardCore()` **之前**把自己的实现注册进依赖注入。下面三个宿主并列：先是 Android，再是两个 Windows 头；表头最后一列写明每个实现所在的目录。
 
-| 接口 | WPF | MAUI（Android） | MAUI（Windows） |
+| 接口 | Android（`NewsBoard.Maui`，`Platforms/Android/`） | Windows（`NewsBoard.Wpf`，`Services/`） | Windows（`NewsBoard.Maui`，`Platforms/Windows/`） |
 |---|---|---|---|
-| `IScreenController` | `WpfScreenController` | `AndroidScreenController` | `WindowsScreenController` |
-| `ISpeechService` | `WpfSpeechService` | `AndroidSpeechService` | `WindowsSpeechService` |
-| `ISecretStore` | `WpfSecretStore` | `MauiSecretStore` | `WindowsSecretStore` |
-| `IAutoStart` | `WpfAutoStart` | `AndroidAutoStart` | `WindowsAutoStart` |
-| `ILinkOpener` | `WpfLinkOpener` | `AndroidLinkOpener` | `WindowsLinkOpener` |
+| `IScreenController` | `AndroidScreenController` | `WpfScreenController` | `WindowsScreenController` |
+| `ISpeechService` | `AndroidSpeechService` | `WpfSpeechService` | `WindowsSpeechService` |
+| `ISecretStore` | `MauiSecretStore` | `WpfSecretStore` | `WindowsSecretStore` |
+| `IAutoStart` | `AndroidAutoStart` | `WpfAutoStart` | `WindowsAutoStart` |
+| `ILinkOpener` | `AndroidLinkOpener` | `WpfLinkOpener` | `WindowsLinkOpener` |
 | `INewsSource`、`INewsRepository`、`IConfigProvider`、`IClock` | 由 Shared 的 `AddNewsBoardCore()` 统一注册 —— 没有平台实现 | | |
 
 `NewsBoard.Maui` 在 `MauiProgram.cs` 里按目标框架选择 Android 或 Windows 那一套；这类条件编译只留在宿主项目里。Shared 自身必须保持不含 `#if ANDROID` 与 `#if WINDOWS`。
+
+## 平台差异
+
+下面这张表就是平台差异的全部范围；没有列出的部分在三个宿主上行为一致，因为它们都住在 Shared 里。
+
+| 能力 | Android | Windows（`NewsBoard.Wpf`） | Windows（`NewsBoard.Maui` 的 Windows 头） |
+|---|---|---|---|
+| 黑屏 / 灭屏 | 窗口亮度置 0 + 全黑遮罩，**物理背光仍然亮着** | **真正关掉显示器**（`WM_SYSCOMMAND` / `SC_MONITORPOWER`，2=关 / -1=开） | 同 WPF；但本头不做无边框全屏，护栏退化为「仅前台」 |
+| 关屏安全护栏 | 不适用 | 仅在「应用窗口是前台 **或** 已无边框全屏」时关屏；**开屏不受护栏限制** | 同上，但全屏条件恒为 false |
+| 屏幕常亮 | `KEEP_SCREEN_ON` 窗口标志承担，**黑屏期间也不撤** | 空实现（桌面无此需求） | 空实现 |
+| 全屏 | 沉浸式：隐藏系统状态栏（配置项 `AndroidShowStatusBar`） | 无边框全屏（F11 进入 / Esc 退出；实测 1600x1000@(160,10) → 1920x1080@(0,0)） | 不做（`SetFullscreenAsync` 空实现） |
+| 语音合成 | 设备自带 TTS 引擎（实测 `com.xiaomi.mibrain.speech`） | `System.Speech`（实测枚举到 `Microsoft Huihui Desktop` zh-CN；`SpeakCompleted` 回调可靠） | `System.Speech`（同 WPF） |
+| 开机自启 | `BootReceiver` + 前台服务 + 常驻通知；厂商自启动管理（如 MIUI）可能拦截 | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` | 同 WPF |
+| 配置 / 缓存目录 | app 私有目录（包名 `com.newsboard.app`） | `%LOCALAPPDATA%\NewsBoard\`（`config.json` / `news.json`） | 同 WPF，**与 WPF 完全共用** |
+| API Key | MAUI `SecureStorage`（Android Keystore 加密，非明文文件） | `%APPDATA%\NewsBoard\secret.dat`（DPAPI CurrentUser + entropy `NewsBoard.SecretStore.v1`） | 同 WPF（两宿主密钥互通） |
+| 打开原文 | 系统浏览器（Intent） | 默认浏览器 | 默认浏览器 |
+| 数据目录覆盖 | 环境变量 `NEWSBOARD_DATA_DIR`（三个宿主通用） | 同左 | 同左 |
 
 ## 冻结契约
 
